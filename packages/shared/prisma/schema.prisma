@@ -1,0 +1,431 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ── Enums ──
+
+enum TrekRoute {
+  EBC
+  ABC
+  LANGTANG
+  MANASLU
+  UPPER_MUSTANG
+}
+
+enum UserRole {
+  TREKKER
+  LODGE_OWNER
+  AGENCY
+  ADMIN
+}
+
+enum ManagedBy {
+  OWNER
+  PLATFORM
+  HYBRID
+}
+
+enum RoomType {
+  PRIVATE_SINGLE
+  PRIVATE_DOUBLE
+  PRIVATE_TWIN
+  DORM
+}
+
+enum Season {
+  PEAK
+  SHOULDER
+  OFF
+  FESTIVAL
+}
+
+enum BookingType {
+  INDIVIDUAL
+  AGENCY
+  WALKIN
+  AGGREGATOR
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum PaymentMethod {
+  ESEWA
+  KHALTI
+  STRIPE
+  BANK_TRANSFER
+  CASH
+}
+
+enum PaymentStatus {
+  INITIATED
+  COMPLETED
+  FAILED
+  REFUNDED
+}
+
+enum ItemType {
+  FOOD
+  DRINK
+  SERVICE
+  SUPPLY
+}
+
+enum TabStatus {
+  OPEN
+  SETTLED
+  VOID
+}
+
+enum SettlementMethod {
+  CASH
+  ESEWA
+  KHALTI
+  INCLUDED_IN_BOOKING
+}
+
+// ── Models ──
+
+model User {
+  id            String   @id @default(cuid())
+  email         String?  @unique
+  phone         String?
+  name          String
+  passwordHash  String?  @map("password_hash")
+  role          UserRole @default(TREKKER)
+  nationality   String?
+  passportNumber String? @map("passport_number")
+  profilePhoto  String?  @map("profile_photo")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  lodges      Lodge[]
+  agency      Agency?
+  itineraries Itinerary[]
+  bookings    Booking[]
+  reviews     Review[]
+
+  @@map("users")
+}
+
+model Lodge {
+  id             String    @id @default(cuid())
+  name           String
+  slug           String    @unique
+  description    String?
+  altitudeMeters Int?      @map("altitude_meters")
+  latitude       Float?
+  longitude      Float?
+  trekRoute      TrekRoute @map("trek_route")
+  trailPosition  Int       @map("trail_position")
+  village        String
+  district       String
+  ownerId        String    @map("owner_id")
+  managedBy      ManagedBy @default(OWNER) @map("managed_by")
+  amenities      Json?
+  photos         String[]
+  isActive       Boolean   @default(true) @map("is_active")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  owner          User            @relation(fields: [ownerId], references: [id])
+  rooms          Room[]
+  menuCategories MenuCategory[]
+  menuItems      MenuItem[]
+  guestTabs      GuestTab[]
+  bookingLegs    BookingLeg[]
+  itineraryStops ItineraryStop[]
+  dailySales     DailySalesSummary[]
+  reviews        Review[]
+  devices        LodgeDevice[]
+
+  @@map("lodges")
+}
+
+model LodgeDevice {
+  id         String    @id @default(cuid())
+  lodgeId    String    @map("lodge_id")
+  apiKey     String    @unique @map("api_key")
+  deviceName String?   @map("device_name")
+  lastSyncAt DateTime? @map("last_sync_at")
+  isActive   Boolean   @default(true) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  lodge Lodge @relation(fields: [lodgeId], references: [id])
+
+  @@map("lodge_devices")
+}
+
+model Room {
+  id           String   @id @default(cuid())
+  lodgeId      String   @map("lodge_id")
+  name         String
+  roomType     RoomType @map("room_type")
+  capacity     Int
+  basePriceNpr Decimal  @map("base_price_npr") @db.Decimal(10, 2)
+  basePriceUsd Decimal? @map("base_price_usd") @db.Decimal(10, 2)
+  amenities    Json?
+  floor        Int?
+  isActive     Boolean  @default(true) @map("is_active")
+
+  lodge         Lodge           @relation(fields: [lodgeId], references: [id])
+  seasonPricing SeasonPricing[]
+  bookingLegs   BookingLeg[]
+  guestTabs     GuestTab[]
+
+  @@map("rooms")
+}
+
+model SeasonPricing {
+  id            String  @id @default(cuid())
+  roomId        String  @map("room_id")
+  season        Season
+  startDate     DateTime @map("start_date") @db.Date
+  endDate       DateTime @map("end_date") @db.Date
+  priceNpr      Decimal @map("price_npr") @db.Decimal(10, 2)
+  priceUsd      Decimal? @map("price_usd") @db.Decimal(10, 2)
+  minStayNights Int?    @map("min_stay_nights")
+
+  room Room @relation(fields: [roomId], references: [id])
+
+  @@map("season_pricing")
+}
+
+model Agency {
+  id             String  @id @default(cuid())
+  name           String
+  licenseNumber  String? @map("license_number")
+  contactEmail   String  @map("contact_email")
+  contactPhone   String? @map("contact_phone")
+  commissionRate Decimal @default(0) @map("commission_rate") @db.Decimal(5, 2)
+  userId         String  @unique @map("user_id")
+  isVerified     Boolean @default(false) @map("is_verified")
+
+  user     User      @relation(fields: [userId], references: [id])
+  bookings Booking[]
+
+  @@map("agencies")
+}
+
+model Itinerary {
+  id          String    @id @default(cuid())
+  name        String
+  trekRoute   TrekRoute @map("trek_route")
+  totalDays   Int       @map("total_days")
+  createdById String?   @map("created_by_id")
+  isTemplate  Boolean   @default(false) @map("is_template")
+  description String?
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  createdBy User?           @relation(fields: [createdById], references: [id])
+  stops     ItineraryStop[]
+  bookings  Booking[]
+
+  @@map("itineraries")
+}
+
+model ItineraryStop {
+  id          String @id @default(cuid())
+  itineraryId String @map("itinerary_id")
+  lodgeId     String @map("lodge_id")
+  dayNumber   Int    @map("day_number")
+  nights      Int    @default(1)
+  notes       String?
+
+  itinerary Itinerary @relation(fields: [itineraryId], references: [id])
+  lodge     Lodge     @relation(fields: [lodgeId], references: [id])
+
+  @@map("itinerary_stops")
+}
+
+model Booking {
+  id             String        @id @default(cuid())
+  bookingRef     String        @unique @map("booking_ref")
+  itineraryId    String?       @map("itinerary_id")
+  bookedById     String        @map("booked_by_id")
+  bookingType    BookingType   @default(INDIVIDUAL) @map("booking_type")
+  agencyId       String?       @map("agency_id")
+  status         BookingStatus @default(PENDING)
+  totalPriceNpr  Decimal?      @map("total_price_npr") @db.Decimal(12, 2)
+  totalPriceUsd  Decimal?      @map("total_price_usd") @db.Decimal(12, 2)
+  currencyUsed   String?       @map("currency_used")
+  paymentStatus  PaymentStatus? @map("payment_status")
+  groupSize      Int           @default(1) @map("group_size")
+  specialRequests String?      @map("special_requests")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  itinerary  Itinerary?  @relation(fields: [itineraryId], references: [id])
+  bookedBy   User        @relation(fields: [bookedById], references: [id])
+  agency     Agency?     @relation(fields: [agencyId], references: [id])
+  legs       BookingLeg[]
+  payments   Payment[]
+
+  @@map("bookings")
+}
+
+model BookingLeg {
+  id            String        @id @default(cuid())
+  bookingId     String        @map("booking_id")
+  lodgeId       String        @map("lodge_id")
+  roomId        String        @map("room_id")
+  checkInDate   DateTime      @map("check_in_date") @db.Date
+  checkOutDate  DateTime      @map("check_out_date") @db.Date
+  nightCount    Int           @map("night_count")
+  pricePerNight Decimal       @map("price_per_night") @db.Decimal(10, 2)
+  legTotal      Decimal       @map("leg_total") @db.Decimal(10, 2)
+  status        BookingStatus @default(PENDING)
+  dayNumber     Int?          @map("day_number")
+
+  booking   Booking    @relation(fields: [bookingId], references: [id])
+  lodge     Lodge      @relation(fields: [lodgeId], references: [id])
+  room      Room       @relation(fields: [roomId], references: [id])
+  guestTabs GuestTab[]
+  reviews   Review[]
+
+  @@map("booking_legs")
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  bookingId     String        @map("booking_id")
+  method        PaymentMethod
+  amount        Decimal       @db.Decimal(12, 2)
+  currency      String        @default("NPR")
+  providerTxnId String?       @map("provider_txn_id")
+  status        PaymentStatus @default(INITIATED)
+  paidAt        DateTime?     @map("paid_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@map("payments")
+}
+
+// ── POS Models ──
+
+model MenuCategory {
+  id        String  @id @default(cuid())
+  lodgeId   String  @map("lodge_id")
+  name      String
+  sortOrder Int     @default(0) @map("sort_order")
+  isActive  Boolean @default(true) @map("is_active")
+
+  lodge Lodge      @relation(fields: [lodgeId], references: [id])
+  items MenuItem[]
+
+  @@map("menu_categories")
+}
+
+model MenuItem {
+  id                String   @id @default(cuid())
+  categoryId        String   @map("category_id")
+  lodgeId           String   @map("lodge_id")
+  name              String
+  nameNe            String?  @map("name_ne")
+  priceNpr          Decimal  @map("price_npr") @db.Decimal(10, 2)
+  unit              String   @default("plate")
+  itemType          ItemType @map("item_type")
+  trackStock        Boolean  @default(false) @map("track_stock")
+  currentStock      Int?     @map("current_stock")
+  lowStockThreshold Int?     @map("low_stock_threshold")
+  isActive          Boolean  @default(true) @map("is_active")
+  sortOrder         Int      @default(0) @map("sort_order")
+
+  category MenuCategory @relation(fields: [categoryId], references: [id])
+  lodge    Lodge         @relation(fields: [lodgeId], references: [id])
+  tabItems TabItem[]
+
+  @@map("menu_items")
+}
+
+model GuestTab {
+  id               String           @id @default(cuid())
+  lodgeId          String           @map("lodge_id")
+  guestName        String           @map("guest_name")
+  roomId           String?          @map("room_id")
+  bookingLegId     String?          @map("booking_leg_id")
+  walkinId         String?          @map("walkin_id")
+  openedAt         DateTime         @default(now()) @map("opened_at")
+  closedAt         DateTime?        @map("closed_at")
+  status           TabStatus        @default(OPEN)
+  tabTotalNpr      Decimal          @default(0) @map("tab_total_npr") @db.Decimal(12, 2)
+  settlementMethod SettlementMethod? @map("settlement_method")
+  notes            String?
+
+  lodge      Lodge       @relation(fields: [lodgeId], references: [id])
+  room       Room?       @relation(fields: [roomId], references: [id])
+  bookingLeg BookingLeg? @relation(fields: [bookingLegId], references: [id])
+  items      TabItem[]
+
+  @@map("guest_tabs")
+}
+
+model TabItem {
+  id           String   @id @default(cuid())
+  tabId        String   @map("tab_id")
+  menuItemId   String   @map("menu_item_id")
+  itemName     String   @map("item_name")
+  quantity     Int
+  unitPriceNpr Decimal  @map("unit_price_npr") @db.Decimal(10, 2)
+  lineTotalNpr Decimal  @map("line_total_npr") @db.Decimal(10, 2)
+  addedAt      DateTime @default(now()) @map("added_at")
+  addedBy      String?  @map("added_by")
+  voided       Boolean  @default(false)
+  voidReason   String?  @map("void_reason")
+
+  tab      GuestTab @relation(fields: [tabId], references: [id])
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id])
+
+  @@map("tab_items")
+}
+
+model DailySalesSummary {
+  id           String   @id @default(cuid())
+  lodgeId      String   @map("lodge_id")
+  date         DateTime @db.Date
+  totalRevenue Decimal  @default(0) @map("total_revenue_npr") @db.Decimal(12, 2)
+  foodTotal    Decimal  @default(0) @map("food_total") @db.Decimal(12, 2)
+  drinkTotal   Decimal  @default(0) @map("drink_total") @db.Decimal(12, 2)
+  serviceTotal Decimal  @default(0) @map("service_total") @db.Decimal(12, 2)
+  supplyTotal  Decimal  @default(0) @map("supply_total") @db.Decimal(12, 2)
+  roomTotal    Decimal  @default(0) @map("room_total") @db.Decimal(12, 2)
+  cashTotal    Decimal  @default(0) @map("cash_total") @db.Decimal(12, 2)
+  digitalTotal Decimal  @default(0) @map("digital_total") @db.Decimal(12, 2)
+  tabsOpened   Int      @default(0) @map("tabs_opened")
+  tabsSettled  Int      @default(0) @map("tabs_settled")
+
+  lodge Lodge @relation(fields: [lodgeId], references: [id])
+
+  @@unique([lodgeId, date])
+  @@map("daily_sales_summaries")
+}
+
+model Review {
+  id           String   @id @default(cuid())
+  bookingLegId String   @map("booking_leg_id")
+  userId       String   @map("user_id")
+  lodgeId      String   @map("lodge_id")
+  rating       Int
+  comment      String?
+  photos       String[]
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  bookingLeg BookingLeg @relation(fields: [bookingLegId], references: [id])
+  user       User       @relation(fields: [userId], references: [id])
+  lodge      Lodge      @relation(fields: [lodgeId], references: [id])
+
+  @@map("reviews")
+}

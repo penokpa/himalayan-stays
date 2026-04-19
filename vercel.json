@@ -1,0 +1,6 @@
+{
+  "buildCommand": "pnpm --filter @himalayan-stays/shared prisma generate && pnpm --filter @himalayan-stays/booking build",
+  "installCommand": "pnpm install --frozen-lockfile",
+  "outputDirectory": "apps/booking/.next",
+  "framework": "nextjs"
+}

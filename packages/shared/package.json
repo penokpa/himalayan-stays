@@ -1,0 +1,21 @@
+{
+  "name": "@himalayan-stays/shared",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./prisma": "./src/prisma.ts"
+  },
+  "scripts": {
+    "prisma": "prisma",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.6.0"
+  },
+  "devDependencies": {
+    "prisma": "^6.6.0",
+    "typescript": "^5.7.0"
+  }
+}

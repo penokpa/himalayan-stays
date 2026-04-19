@@ -1,0 +1,14 @@
+{
+  "name": "himalayan-stays",
+  "private": true,
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "dev:booking": "pnpm --filter @himalayan-stays/booking dev",
+    "dev:pms": "pnpm --filter @himalayan-stays/pms dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "db:generate": "pnpm --filter @himalayan-stays/shared prisma generate",
+    "db:push": "pnpm --filter @himalayan-stays/shared prisma db push",
+    "db:migrate": "pnpm --filter @himalayan-stays/shared prisma migrate dev"
+  }
+}
