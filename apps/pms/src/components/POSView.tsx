@@ -14,6 +14,7 @@ import {
   voidTabItem,
   unholdTab,
   getTab,
+  getTopItemsToday,
 } from "@/lib/tabs";
 import { getMenu, seedMenuIfEmpty } from "@/lib/menu";
 import { getRoomStatus } from "@/lib/rooms";
@@ -36,14 +37,23 @@ interface OccupiedRoom {
 type SubView = "pos" | "menu-setup" | "stock" | "daily-report";
 type MobilePanel = "menu" | "tab";
 
-export default function POSView() {
+interface POSViewProps {
+  activeTabId: string | null;
+  onActiveTabIdChange: (id: string | null) => void;
+}
+
+export default function POSView({
+  activeTabId,
+  onActiveTabIdChange,
+}: POSViewProps) {
+  const setActiveTabId = onActiveTabIdChange;
   const [subView, setSubView] = useState<SubView>("pos");
   const [tabs, setTabs] = useState<TabDoc[]>([]);
   const [occupiedRooms, setOccupiedRooms] = useState<OccupiedRoom[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabDoc | null>(null);
   const [categories, setCategories] = useState<MenuCategoryLocal[]>([]);
   const [activeCatId, setActiveCatId] = useState<string | null>(null);
+  const [quickItems, setQuickItems] = useState<MenuItemLocal[]>([]);
   const [showNewTab, setShowNewTab] = useState(false);
   const [showSettle, setShowSettle] = useState(false);
   const [showSwitcher, setShowSwitcher] = useState(false);
@@ -52,15 +62,18 @@ export default function POSView() {
     | { kind: "increment"; tabItemId: string; menuItem: MenuItemLocal; newQty: number }
     | null
   >(null);
-  const [mobilePanel, setMobilePanel] = useState<MobilePanel>("menu");
+  const [mobilePanel, setMobilePanel] = useState<MobilePanel>(
+    activeTabId ? "tab" : "menu"
+  );
   const [voidingItem, setVoidingItem] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState("");
 
   const load = useCallback(async () => {
-    const [openTabs, menu, roomStatus] = await Promise.all([
+    const [openTabs, menu, roomStatus, topToday] = await Promise.all([
       getOpenTabs(),
       getMenu(),
       getRoomStatus(),
+      getTopItemsToday(5),
     ]);
     setTabs(openTabs);
     const cats = (menu?.categories ?? []).filter((c) =>
@@ -68,6 +81,16 @@ export default function POSView() {
     );
     setCategories(cats);
     if (!activeCatId && cats.length > 0) setActiveCatId(cats[0].id);
+
+    // Resolve top item ids → live MenuItemLocal objects (skip deleted/inactive)
+    const menuItemById = new Map<string, MenuItemLocal>();
+    for (const cat of menu?.categories ?? []) {
+      for (const item of cat.items) menuItemById.set(item.id, item);
+    }
+    const quick = topToday
+      .map((t) => menuItemById.get(t.menu_item_id))
+      .filter((m): m is MenuItemLocal => !!m && m.is_active);
+    setQuickItems(quick);
 
     // Build occupied rooms list with their tab status
     if (roomStatus) {
@@ -103,13 +126,17 @@ export default function POSView() {
     seedMenuIfEmpty().then(() => load());
   }, []);
 
-  // Reload active tab whenever activeTabId changes
+  // Reload active tab whenever activeTabId changes — also flips to the order
+  // panel on mobile so deep-links land on the tab (not the menu).
   useEffect(() => {
     if (!activeTabId) {
       setActiveTab(null);
       return;
     }
-    getTab(activeTabId).then((t) => setActiveTab(t));
+    getTab(activeTabId).then((t) => {
+      setActiveTab(t);
+      setMobilePanel("tab");
+    });
   }, [activeTabId]);
 
   const handleOpenTab = async (guestName: string, roomId?: string) => {
@@ -265,6 +292,55 @@ export default function POSView() {
   // ── Left Panel: Menu ──
   const menuPanel = (
     <div className="w-full flex flex-col h-full">
+      {/* Quick-add row — top items today, learned from tab history */}
+      {quickItems.length > 0 && (
+        <div className="shrink-0 border-b border-white/10 bg-[var(--color-primary)]/5">
+          <div className="flex items-center gap-2 px-3 pt-2">
+            <span className="text-[10px] uppercase tracking-wider text-[var(--color-primary)] font-bold">
+              {"⭐"} Quick add
+            </span>
+            <span className="text-[10px] text-white/30">
+              most-ordered today
+            </span>
+          </div>
+          <div className="flex overflow-x-auto gap-2 px-3 py-2 scrollbar-none">
+            {quickItems.map((item) => {
+              const isOOS =
+                !!item.track_stock &&
+                item.current_stock != null &&
+                item.current_stock <= 0;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => handleAddItem(item)}
+                  disabled={!activeTabId}
+                  className={`relative shrink-0 min-h-[56px] min-w-[96px] px-3 py-1.5 rounded-lg flex flex-col items-center justify-center bg-[var(--color-surface)] active:scale-95 transition-transform disabled:opacity-40 ${
+                    isOOS
+                      ? "border border-red-500/40 opacity-70"
+                      : "border border-white/10"
+                  }`}
+                >
+                  {isOOS && (
+                    <span className="absolute top-0.5 right-0.5 text-[8px] bg-red-500/30 text-red-300 px-1 rounded-full font-bold">
+                      OUT
+                    </span>
+                  )}
+                  <span className="text-lg leading-none">
+                    {typeIcon(item.item_type)}
+                  </span>
+                  <span className="text-[11px] font-medium leading-tight mt-0.5 max-w-[88px] truncate">
+                    {item.name}
+                  </span>
+                  <span className="text-[10px] text-white/50 leading-none mt-0.5">
+                    Rs. {item.price_npr}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Category tabs */}
       <div className="shrink-0 border-b border-white/10">
         <div className="flex overflow-x-auto gap-2 px-3 py-2 scrollbar-none">

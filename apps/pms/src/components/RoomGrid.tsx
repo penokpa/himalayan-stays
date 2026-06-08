@@ -1,10 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { RoomStatusDoc, RoomSlot } from "@himalayan-stays/shared";
 import { getRoomStatus, updateRoomSlot, addRoom } from "@/lib/rooms";
+import { getOpenTabs, openTab } from "@/lib/tabs";
 import { getDoc } from "@/lib/db";
 import RoomSetup from "./RoomSetup";
 import CheckInModal from "./CheckInModal";
 import RoomDetail from "./RoomDetail";
+
+interface Props {
+  onOpenInPOS?: (tabId: string) => void;
+}
 
 const STATUS_COLORS: Record<RoomSlot["status"], string> = {
   VACANT: "border-green-500 bg-green-500/15",
@@ -20,12 +25,13 @@ const STATUS_DOT: Record<RoomSlot["status"], string> = {
   BLOCKED: "bg-gray-400",
 };
 
-export default function RoomGrid() {
+export default function RoomGrid({ onOpenInPOS }: Props) {
   const [doc, setDoc] = useState<RoomStatusDoc | null | undefined>(undefined);
   const [roomTypes, setRoomTypes] = useState<Record<string, string>>({});
   const [selectedRoom, setSelectedRoom] = useState<RoomSlot | null>(null);
   const [modalMode, setModalMode] = useState<"checkin" | "detail" | null>(null);
   const [longPressTimer, setLongPressTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
   const [showAddRoom, setShowAddRoom] = useState(false);
   const [newRoomName, setNewRoomName] = useState("");
   const [newRoomType, setNewRoomType] = useState("Private Double");
@@ -55,19 +61,53 @@ export default function RoomGrid() {
     loadRooms();
   }, [loadRooms]);
 
-  const handleRoomTap = useCallback((room: RoomSlot) => {
-    setSelectedRoom(room);
-    if (room.status === "VACANT") {
-      setModalMode("checkin");
-    } else {
-      setModalMode("detail");
-    }
-  }, []);
+  const handleRoomTap = useCallback(
+    async (room: RoomSlot) => {
+      // Long-press already handled — swallow the trailing click
+      if (longPressFired.current) {
+        longPressFired.current = false;
+        return;
+      }
+      if (room.status === "OCCUPIED" && onOpenInPOS) {
+        // Deep-link to POS with this room's tab pre-selected
+        const openTabs = await getOpenTabs();
+        const existing = openTabs.find((t) => t.room_id === room.room_id);
+        if (existing) {
+          onOpenInPOS(existing._id);
+        } else {
+          const newTab = await openTab(
+            room.guest_name || "Guest",
+            room.room_id
+          );
+          onOpenInPOS(newTab._id);
+        }
+        return;
+      }
+      setSelectedRoom(room);
+      if (room.status === "VACANT") {
+        setModalMode("checkin");
+      } else {
+        setModalMode("detail");
+      }
+    },
+    [onOpenInPOS]
+  );
 
   const handleLongPressStart = useCallback(
     (room: RoomSlot) => {
-      if (room.status === "OCCUPIED") return; // don't toggle occupied rooms
+      if (room.status === "OCCUPIED") {
+        // Long-press an occupied room → open the detail view (review, check-out).
+        // Single-tap takes the lodge owner straight to POS for the common case.
+        const timer = setTimeout(() => {
+          longPressFired.current = true;
+          setSelectedRoom(room);
+          setModalMode("detail");
+        }, 600);
+        setLongPressTimer(timer);
+        return;
+      }
       const timer = setTimeout(async () => {
+        longPressFired.current = true;
         try {
           const newStatus = room.status === "MAINTENANCE" ? "VACANT" : "MAINTENANCE";
           await updateRoomSlot(room.room_id, { status: newStatus });
@@ -226,7 +266,8 @@ export default function RoomGrid() {
 
       {/* Hint */}
       <p className="text-center text-xs text-white/20 mt-4">
-        Long-press a vacant room to toggle maintenance
+        Tap an occupied room to add items · Long-press for details or
+        maintenance
       </p>
 
       {/* Modals */}

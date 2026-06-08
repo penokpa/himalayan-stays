@@ -172,6 +172,34 @@ export async function settleTab(
   });
 }
 
+/**
+ * Returns the top N most-added menu items today (by total non-voided quantity),
+ * for surfacing as a quick-add row above the category grid. Filters on
+ * item.added_at (not tab.opened_at) so a multi-night tab's earlier orders
+ * don't pollute today's signal.
+ */
+export async function getTopItemsToday(
+  limit = 5
+): Promise<{ menu_item_id: string; quantity: number }[]> {
+  const today = new Date().toISOString().slice(0, 10);
+  const allTabs = await getDocsByPrefix<TabDoc>(`tab:${LODGE_ID}:`);
+  const counts = new Map<string, number>();
+  for (const tab of allTabs) {
+    for (const item of tab.items) {
+      if (item.voided) continue;
+      if (!item.added_at.startsWith(today)) continue;
+      counts.set(
+        item.menu_item_id,
+        (counts.get(item.menu_item_id) ?? 0) + item.quantity
+      );
+    }
+  }
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([menu_item_id, quantity]) => ({ menu_item_id, quantity }));
+}
+
 export interface DailySalesResult {
   total: number;
   food: number;

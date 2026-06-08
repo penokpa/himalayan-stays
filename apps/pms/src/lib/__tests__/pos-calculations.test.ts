@@ -16,6 +16,7 @@ import {
   getTab,
   getOpenTabs,
   getDailySales,
+  getTopItemsToday,
 } from "@/lib/tabs";
 import type { MenuItemLocal } from "@himalayan-stays/shared";
 
@@ -565,6 +566,91 @@ describe("POS Calculations", () => {
       const itemId = (await getTab(tab._id))!.items[0].id;
       await updateItemQuantity(tab._id, itemId, 0); // restore all, 12 → 15
       expect((await getMenuItem("Supplies", "Snickers")).current_stock).toBe(15);
+    });
+  });
+
+  // ─── Quick-add (top items today) ───
+  describe("getTopItemsToday", () => {
+    it("ranks items by total non-voided quantity today (desc)", async () => {
+      const tab = await openTab("Guest T1", "room-1");
+      const dalBhat = await getMenuItem("Meals", "Dal Bhat");
+      const milkTea = await getMenuItem("Drinks", "Milk Tea");
+      const thukpa = await getMenuItem("Meals", "Thukpa");
+
+      await addItemToTab(tab._id, milkTea, 5);
+      await addItemToTab(tab._id, dalBhat, 3);
+      await addItemToTab(tab._id, thukpa, 1);
+
+      const top = await getTopItemsToday(5);
+      expect(top[0]).toEqual({ menu_item_id: milkTea.id, quantity: 5 });
+      expect(top[1]).toEqual({ menu_item_id: dalBhat.id, quantity: 3 });
+      expect(top[2]).toEqual({ menu_item_id: thukpa.id, quantity: 1 });
+    });
+
+    it("sums quantity across tabs for the same menu item", async () => {
+      const tab1 = await openTab("Guest T2", "room-1");
+      const tab2 = await openTab("Guest T3", "room-2");
+      const milkTea = await getMenuItem("Drinks", "Milk Tea");
+
+      await addItemToTab(tab1._id, milkTea, 2);
+      await addItemToTab(tab2._id, milkTea, 3);
+
+      const top = await getTopItemsToday(5);
+      expect(top[0]).toEqual({ menu_item_id: milkTea.id, quantity: 5 });
+    });
+
+    it("excludes voided items from the ranking", async () => {
+      const tab = await openTab("Guest T4", "room-1");
+      const milkTea = await getMenuItem("Drinks", "Milk Tea");
+      const dalBhat = await getMenuItem("Meals", "Dal Bhat");
+
+      await addItemToTab(tab._id, milkTea, 5);
+      await addItemToTab(tab._id, dalBhat, 1);
+      const milkTeaItem = (await getTab(tab._id))!.items.find(
+        (i) => i.menu_item_id === milkTea.id
+      )!;
+      await voidTabItem(tab._id, milkTeaItem.id, "wrong");
+
+      const top = await getTopItemsToday(5);
+      expect(top[0]).toEqual({ menu_item_id: dalBhat.id, quantity: 1 });
+      expect(top.some((t) => t.menu_item_id === milkTea.id)).toBe(false);
+    });
+
+    it("respects the limit", async () => {
+      const tab = await openTab("Guest T5", "room-1");
+      const items = [
+        await getMenuItem("Meals", "Dal Bhat"),
+        await getMenuItem("Meals", "Thukpa"),
+        await getMenuItem("Meals", "Fried Rice"),
+        await getMenuItem("Meals", "Pasta"),
+        await getMenuItem("Meals", "Momo"),
+      ];
+      for (const it of items) await addItemToTab(tab._id, it, 1);
+      const top = await getTopItemsToday(3);
+      expect(top).toHaveLength(3);
+    });
+
+    it("returns empty when no tabs exist today", async () => {
+      const top = await getTopItemsToday(5);
+      expect(top).toEqual([]);
+    });
+
+    it("counts items added today even on a tab opened earlier", async () => {
+      const tab = await openTab("Multi-Night", "room-9");
+      const milkTea = await getMenuItem("Drinks", "Milk Tea");
+      await addItemToTab(tab._id, milkTea, 2);
+
+      // Backdate the tab's opened_at to two days ago — simulating a multi-night
+      // stay where the tab was opened in a prior session. Items keep today's
+      // added_at, so they should still count.
+      const { getDoc, putDoc } = await import("@/lib/db");
+      const stored = (await getDoc(tab._id))!;
+      const twoDaysAgo = new Date(Date.now() - 2 * 86400_000).toISOString();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await putDoc({ ...(stored as any), opened_at: twoDaysAgo });
+
+      const top = await getTopItemsToday(5);
+      expect(top[0]).toEqual({ menu_item_id: milkTea.id, quantity: 2 });
     });
   });
 

@@ -10,7 +10,13 @@ type Tab = "rooms" | "pos" | "walkins" | "sales" | "settings";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("rooms");
+  const [posActiveTabId, setPosActiveTabId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
+
+  const deepLinkToPOS = (tabId: string) => {
+    setPosActiveTabId(tabId);
+    setActiveTab("pos");
+  };
 
   useEffect(() => {
     seedDemoData().then(() => setReady(true));
@@ -33,8 +39,13 @@ export default function App() {
 
       {/* Main content */}
       <main className="flex-1 p-4">
-        {activeTab === "rooms" && <RoomGrid />}
-        {activeTab === "pos" && <POSView />}
+        {activeTab === "rooms" && <RoomGrid onOpenInPOS={deepLinkToPOS} />}
+        {activeTab === "pos" && (
+          <POSView
+            activeTabId={posActiveTabId}
+            onActiveTabIdChange={setPosActiveTabId}
+          />
+        )}
         {activeTab === "walkins" && <WalkInsList />}
         {activeTab === "sales" && <DailySales />}
         {activeTab === "settings" && <Settings />}
