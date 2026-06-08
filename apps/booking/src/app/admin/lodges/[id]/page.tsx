@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { Decimal } from "@prisma/client/runtime/library";
 import { AddRoomForm } from "./add-room-form";
+import { PhotosForm } from "./photos-form";
+import { SeasonsForm } from "./seasons-form";
 
 function roomTypeLabel(type: string): string {
   const labels: Record<string, string> = {
@@ -112,6 +114,14 @@ export default async function LodgeDetailPage({
         </dl>
       </div>
 
+      {/* Photos */}
+      <div className="mt-8">
+        <h2 className="text-lg font-semibold text-gray-900">
+          Photos ({lodge.photos.length})
+        </h2>
+        <PhotosForm lodgeId={lodge.id} initialPhotos={lodge.photos} />
+      </div>
+
       {/* Rooms table */}
       <div className="mt-8">
         <h2 className="text-lg font-semibold text-gray-900">
@@ -186,6 +196,12 @@ export default async function LodgeDetailPage({
       <div className="mt-8">
         <h2 className="text-lg font-semibold text-gray-900">Add Room</h2>
         <AddRoomForm lodgeId={lodge.id} />
+      </div>
+
+      {/* Seasonal pricing */}
+      <div className="mt-8">
+        <h2 className="text-lg font-semibold text-gray-900">Seasonal Pricing</h2>
+        <SeasonsForm lodgeId={lodge.id} />
       </div>
     </>
   );

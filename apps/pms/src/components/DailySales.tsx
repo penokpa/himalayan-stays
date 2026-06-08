@@ -98,6 +98,22 @@ export default function DailySales() {
         </div>
       </div>
 
+      {/* OOS audit signal — only shown when something was sold out of stock */}
+      {sales.sold_oos_units > 0 && (
+        <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 flex items-center gap-3">
+          <span className="text-2xl">{"⚠️"}</span>
+          <div className="flex-1">
+            <p className="font-bold text-yellow-300">
+              {sales.sold_oos_units} unit{sales.sold_oos_units === 1 ? "" : "s"}{" "}
+              sold while out of stock
+            </p>
+            <p className="text-xs text-yellow-300/60 mt-0.5">
+              Reconcile inventory before tomorrow
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Payment Breakdown */}
       <div className="bg-[var(--color-surface)] rounded-xl border border-white/10 overflow-hidden">
         <div className="px-4 py-3 border-b border-white/10">

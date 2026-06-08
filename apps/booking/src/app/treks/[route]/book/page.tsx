@@ -92,11 +92,34 @@ export default function ItinerarySelectionPage() {
         />
       </div>
 
+      {/* Build your own CTA */}
+      <button
+        type="button"
+        onClick={() => {
+          if (!ctx.startDate) {
+            alert("Pick a trek start date first.");
+            return;
+          }
+          ctx.setTemplateId(null);
+          ctx.setItineraryName("Custom EBC Trek");
+          router.push(`/treks/${route}/book/custom`);
+        }}
+        className="flex w-full items-center justify-between gap-4 rounded-xl border-2 border-dashed border-emerald-300 bg-emerald-50 p-5 text-left transition hover:border-emerald-500 hover:bg-emerald-100"
+      >
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-emerald-900">Build your own trek</p>
+          <p className="mt-0.5 text-sm text-emerald-800">
+            Pick exactly which villages, lodges, and how many nights at each.
+          </p>
+        </div>
+        <span className="shrink-0 text-emerald-700">→</span>
+      </button>
+
       {/* Templates */}
       <div>
-        <h2 className="text-lg font-semibold text-stone-900">Choose an Itinerary</h2>
+        <h2 className="text-lg font-semibold text-stone-900">Or start from a template</h2>
         <p className="mt-1 text-sm text-stone-500">
-          Select a recommended itinerary or build your own.
+          Recommended itineraries based on common trek patterns.
         </p>
 
         {loading ? (

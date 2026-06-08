@@ -5,8 +5,12 @@ import {
   generateBookingRef,
   calculateCheckInDate,
   calculateCheckOutDate,
+  activeOverlapWhere,
 } from "@/lib/booking-utils";
 import { TrekRoute } from "@prisma/client";
+import { nprToUsd } from "@/lib/currency";
+import { quoteRoom } from "@/lib/pricing";
+import { logBookingEvent } from "@/lib/audit";
 
 interface StopInput {
   lodgeId: string;
@@ -97,12 +101,7 @@ export async function POST(request: NextRequest) {
       const checkOut = calculateCheckOutDate(checkIn, stop.nights);
 
       const overlap = await prisma.bookingLeg.findFirst({
-        where: {
-          roomId: stop.roomId,
-          status: { notIn: ["CANCELLED", "NO_SHOW"] },
-          checkInDate: { lt: checkOut },
-          checkOutDate: { gt: checkIn },
-        },
+        where: activeOverlapWhere(stop.roomId, checkIn, checkOut),
       });
 
       if (overlap) {
@@ -137,6 +136,30 @@ export async function POST(request: NextRequest) {
     const lastStop = stops[stops.length - 1];
     const totalDays = lastStop.dayNumber + lastStop.nights - 1;
 
+    // Quote all rooms BEFORE the transaction — quoting is read-only and the
+    // extra Prisma round-trips would otherwise exceed the default tx timeout.
+    let totalPriceNpr = 0;
+    const legData = await Promise.all(
+      stops.map(async (stop) => {
+        const checkIn = calculateCheckInDate(start, stop.dayNumber);
+        const checkOut = calculateCheckOutDate(checkIn, stop.nights);
+        const quote = await quoteRoom(stop.roomId, checkIn, checkOut);
+        const legTotal = quote.totalNpr;
+        totalPriceNpr += legTotal;
+        return {
+          lodgeId: stop.lodgeId,
+          roomId: stop.roomId,
+          checkInDate: checkIn,
+          checkOutDate: checkOut,
+          nightCount: stop.nights,
+          pricePerNight: legTotal / stop.nights,
+          legTotal,
+          status: "PENDING" as const,
+          dayNumber: stop.dayNumber,
+        };
+      })
+    );
+
     // Create everything in a transaction
     const booking = await prisma.$transaction(async (tx) => {
       // Create itinerary
@@ -160,28 +183,6 @@ export async function POST(request: NextRequest) {
         })),
       });
 
-      // Calculate leg prices and total
-      let totalPriceNpr = 0;
-      const legData = stops.map((stop) => {
-        const room = roomMap.get(stop.roomId)!;
-        const checkIn = calculateCheckInDate(start, stop.dayNumber);
-        const checkOut = calculateCheckOutDate(checkIn, stop.nights);
-        const legTotal = room.basePriceNpr.toNumber() * stop.nights;
-        totalPriceNpr += legTotal;
-
-        return {
-          lodgeId: stop.lodgeId,
-          roomId: stop.roomId,
-          checkInDate: checkIn,
-          checkOutDate: checkOut,
-          nightCount: stop.nights,
-          pricePerNight: room.basePriceNpr,
-          legTotal,
-          status: "PENDING" as const,
-          dayNumber: stop.dayNumber,
-        };
-      });
-
       // Create booking
       const newBooking = await tx.booking.create({
         data: {
@@ -193,6 +194,7 @@ export async function POST(request: NextRequest) {
           groupSize: groupSize ?? 1,
           specialRequests: specialRequests ?? null,
           totalPriceNpr,
+          totalPriceUsd: nprToUsd(totalPriceNpr),
         },
       });
 
@@ -206,8 +208,22 @@ export async function POST(request: NextRequest) {
         });
       }
 
+      await logBookingEvent({
+        bookingId: newBooking.id,
+        type: "booking_created",
+        actor: { email: guestEmail, role: "TREKKER" },
+        metadata: {
+          trekRoute,
+          itineraryName,
+          stops: stops.length,
+          totalNpr: totalPriceNpr,
+          source: "itinerary",
+        },
+        tx,
+      });
+
       return newBooking;
-    });
+    }, { timeout: 15000 });
 
     return NextResponse.json(
       { booking: { ...booking, bookingRef } },

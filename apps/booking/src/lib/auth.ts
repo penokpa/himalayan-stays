@@ -38,6 +38,12 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
           return null;
         }
 
+        if (!user.emailVerifiedAt) {
+          // NextAuth surfaces this as result.error on the client.
+          // The login form treats this marker as "needs verification".
+          throw new Error("EMAIL_NOT_VERIFIED");
+        }
+
         return {
           id: user.id,
           email: user.email!,

@@ -12,6 +12,7 @@ import {
   addItemToTab,
   updateItemQuantity,
   voidTabItem,
+  unholdTab,
   getTab,
 } from "@/lib/tabs";
 import { getMenu, seedMenuIfEmpty } from "@/lib/menu";
@@ -21,6 +22,8 @@ import SettleModal from "./SettleModal";
 import MenuSetup from "./MenuSetup";
 import StockManager from "./StockManager";
 import DailySales from "./DailySales";
+import TabSwitcherSheet from "./TabSwitcherSheet";
+import OOSConfirmSheet from "./OOSConfirmSheet";
 
 interface OccupiedRoom {
   room_id: string;
@@ -43,6 +46,12 @@ export default function POSView() {
   const [activeCatId, setActiveCatId] = useState<string | null>(null);
   const [showNewTab, setShowNewTab] = useState(false);
   const [showSettle, setShowSettle] = useState(false);
+  const [showSwitcher, setShowSwitcher] = useState(false);
+  const [oosPrompt, setOosPrompt] = useState<
+    | { kind: "add"; menuItem: MenuItemLocal }
+    | { kind: "increment"; tabItemId: string; menuItem: MenuItemLocal; newQty: number }
+    | null
+  >(null);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>("menu");
   const [voidingItem, setVoidingItem] = useState<string | null>(null);
   const [voidReason, setVoidReason] = useState("");
@@ -111,36 +120,51 @@ export default function POSView() {
     await load();
   };
 
-  const handleRoomTap = async (room: OccupiedRoom) => {
-    if (room.hasOpenTab && room.tabId) {
-      // Room already has an open tab — select it
-      setActiveTabId(room.tabId);
-      setMobilePanel("tab");
-    } else {
-      // No open tab — create a new one for this room's guest
-      const newTab = await openTab(room.guest_name, room.room_id);
-      setActiveTabId(newTab._id);
-      setMobilePanel("tab");
-      await load();
-    }
+  const wouldGoNegative = (menuItem: MenuItemLocal, delta: number): boolean =>
+    !!menuItem.track_stock &&
+    menuItem.current_stock != null &&
+    menuItem.current_stock - delta < 0;
+
+  const performAdd = async (menuItem: MenuItemLocal, soldOos: boolean) => {
+    if (!activeTabId) return;
+    await addItemToTab(activeTabId, menuItem, 1, soldOos ? { soldOos: true } : undefined);
+    await load();
+  };
+
+  const performQty = async (itemId: string, newQty: number, soldOos: boolean) => {
+    if (!activeTabId) return;
+    await updateItemQuantity(
+      activeTabId,
+      itemId,
+      newQty,
+      soldOos ? { soldOos: true } : undefined
+    );
+    await load();
   };
 
   const handleAddItem = async (menuItem: MenuItemLocal) => {
     if (!activeTabId) return;
-    await addItemToTab(activeTabId, menuItem, 1);
-    const refreshed = await getTab(activeTabId);
-    setActiveTab(refreshed);
-    const openTabs = await getOpenTabs();
-    setTabs(openTabs);
+    if (wouldGoNegative(menuItem, 1)) {
+      setOosPrompt({ kind: "add", menuItem });
+      return;
+    }
+    await performAdd(menuItem, false);
   };
 
   const handleQuantityChange = async (itemId: string, newQty: number) => {
     if (!activeTabId) return;
-    await updateItemQuantity(activeTabId, itemId, newQty);
-    const refreshed = await getTab(activeTabId);
-    setActiveTab(refreshed);
-    const openTabs = await getOpenTabs();
-    setTabs(openTabs);
+    const tabItem = activeTab?.items.find((i) => i.id === itemId);
+    const menuItem = tabItem
+      ? categories
+          .flatMap((c) => c.items)
+          .find((m) => m.id === tabItem.menu_item_id)
+      : undefined;
+    const delta = newQty - (tabItem?.quantity ?? 0);
+    if (menuItem && delta > 0 && wouldGoNegative(menuItem, delta)) {
+      setOosPrompt({ kind: "increment", tabItemId: itemId, menuItem, newQty });
+      return;
+    }
+    await performQty(itemId, newQty, false);
   };
 
   const handleVoid = async (itemId: string) => {
@@ -149,10 +173,24 @@ export default function POSView() {
     await voidTabItem(activeTabId, itemId, reason);
     setVoidingItem(null);
     setVoidReason("");
-    const refreshed = await getTab(activeTabId);
-    setActiveTab(refreshed);
-    const openTabs = await getOpenTabs();
-    setTabs(openTabs);
+    await load();
+  };
+
+  const confirmOos = async () => {
+    if (!oosPrompt) return;
+    const prompt = oosPrompt;
+    setOosPrompt(null);
+    if (prompt.kind === "add") {
+      await performAdd(prompt.menuItem, true);
+    } else {
+      await performQty(prompt.tabItemId, prompt.newQty, true);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!activeTabId) return;
+    await unholdTab(activeTabId);
+    await load();
   };
 
   const handleSettled = () => {
@@ -226,7 +264,7 @@ export default function POSView() {
 
   // ── Left Panel: Menu ──
   const menuPanel = (
-    <div className="flex flex-col h-full">
+    <div className="w-full flex flex-col h-full">
       {/* Category tabs */}
       <div className="shrink-0 border-b border-white/10">
         <div className="flex overflow-x-auto gap-2 px-3 py-2 scrollbar-none">
@@ -253,23 +291,38 @@ export default function POSView() {
             <p>No active items in this category</p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {activeItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => handleAddItem(item)}
-                disabled={!activeTabId}
-                className="bg-[var(--color-surface)] border border-white/10 rounded-xl p-3 min-h-[80px] flex flex-col items-center justify-center text-center active:scale-95 active:bg-[var(--color-primary)]/20 transition-all disabled:opacity-40"
-              >
-                <span className="text-2xl mb-1">{typeIcon(item.item_type)}</span>
-                <span className="font-medium text-sm leading-tight">
-                  {item.name}
-                </span>
-                <span className="text-xs text-white/50 mt-1">
-                  Rs. {item.price_npr}
-                </span>
-              </button>
-            ))}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+            {activeItems.map((item) => {
+              const isOOS =
+                !!item.track_stock &&
+                item.current_stock != null &&
+                item.current_stock <= 0;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => handleAddItem(item)}
+                  disabled={!activeTabId}
+                  className={`relative bg-[var(--color-surface)] rounded-xl p-3 min-h-[80px] flex flex-col items-center justify-center text-center active:scale-95 active:bg-[var(--color-primary)]/20 transition-all disabled:opacity-40 ${
+                    isOOS
+                      ? "border border-red-500/40 opacity-70"
+                      : "border border-white/10"
+                  }`}
+                >
+                  {isOOS && (
+                    <span className="absolute top-1.5 right-1.5 text-[9px] bg-red-500/30 text-red-300 px-1.5 py-0.5 rounded-full font-bold tracking-wider">
+                      OUT
+                    </span>
+                  )}
+                  <span className="text-2xl mb-1">{typeIcon(item.item_type)}</span>
+                  <span className="font-medium text-sm leading-tight">
+                    {item.name}
+                  </span>
+                  <span className="text-xs text-white/50 mt-1">
+                    Rs. {item.price_npr}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
@@ -287,97 +340,91 @@ export default function POSView() {
   );
 
   // ── Right Panel: Active Tab ──
-  const tabPanel = (
-    <div className="flex flex-col h-full">
-      {/* Room & tab chips — scrollable row */}
-      <div className="shrink-0 border-b border-white/10">
-        <div className="flex overflow-x-auto gap-1.5 px-2 py-2 scrollbar-none">
-          {/* Occupied rooms first */}
-          {occupiedRooms.map((room) => {
-            const isActive = room.hasOpenTab && room.tabId === activeTabId;
-            return (
-              <button
-                key={room.room_id}
-                onClick={() => handleRoomTap(room)}
-                className={`min-h-[36px] px-2.5 rounded-full whitespace-nowrap text-xs font-medium shrink-0 flex items-center gap-1 ${
-                  isActive
-                    ? "bg-[var(--color-primary)] text-white"
-                    : room.hasOpenTab
-                      ? "bg-red-500/20 text-red-300 border border-red-500/30"
-                      : "bg-green-500/15 text-green-300 border border-green-500/30"
-                }`}
-              >
-                <span className="text-sm">{"\uD83C\uDFE8"}</span>
-                <span className="max-w-[50px] truncate">{room.room_name}</span>
-                <span className="max-w-[50px] truncate text-[10px] opacity-75">
-                  {room.guest_name}
+  const activeRoomName = activeTab?.room_id
+    ? occupiedRooms.find((r) => r.room_id === activeTab.room_id)?.room_name
+    : undefined;
+  const activeIsRoom = !!activeTab?.room_id;
+
+  const activeTabHero = (
+    <div className="shrink-0 px-3 py-2.5 border-b border-white/10 flex items-center gap-3">
+      <div className="flex-1 min-w-0">
+        {activeTab ? (
+          <>
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-base shrink-0">
+                {activeIsRoom ? "\uD83C\uDFE8" : "\uD83D\uDC64"}
+              </span>
+              <p className="font-bold text-sm truncate">
+                {activeIsRoom && activeRoomName
+                  ? `Room ${activeRoomName}`
+                  : activeTab.guest_name}
+              </p>
+              {activeTab.notes?.includes("ON HOLD") && (
+                <span className="text-[10px] bg-yellow-500/20 text-yellow-400 px-1.5 py-0.5 rounded-full font-medium shrink-0">
+                  On Hold
                 </span>
-                {room.hasOpenTab && room.tabId && (
-                  <span className="text-[10px] opacity-75">
-                    {tabs.find((t) => t._id === room.tabId)?.tab_total_npr || ""}
-                  </span>
-                )}
-                {!room.hasOpenTab && (
-                  <span className="text-[10px] opacity-60">+ new</span>
-                )}
-              </button>
-            );
-          })}
-          {/* Walk-in tabs (no room) */}
-          {tabs
-            .filter((tab) => !tab.room_id)
-            .map((tab) => (
-              <button
-                key={tab._id}
-                onClick={() => {
-                  setActiveTabId(tab._id);
-                  setMobilePanel("tab");
-                }}
-                className={`min-h-[36px] px-2.5 rounded-full whitespace-nowrap text-xs font-medium shrink-0 flex items-center gap-1 ${
-                  activeTabId === tab._id
-                    ? "bg-[var(--color-primary)] text-white"
-                    : "bg-white/10 text-white/60"
-                }`}
-              >
-                <span className="text-sm">{"\uD83D\uDC64"}</span>
-                <span className="max-w-[60px] truncate">
-                  {tab.guest_name}
+              )}
+            </div>
+            <p className="text-xs text-white/50 truncate">
+              {activeIsRoom ? activeTab.guest_name : "Walk-in"}
+              {subtotal > 0 && (
+                <span className="ml-2">
+                  {"\u00B7"} Running: Rs. {subtotal.toLocaleString()}
                 </span>
-                {tab.tab_total_npr > 0 && (
-                  <span className="text-[10px] opacity-75">
-                    {tab.tab_total_npr}
-                  </span>
-                )}
-              </button>
-            ))}
-        </div>
+              )}
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-white/50">No tab selected</p>
+        )}
       </div>
+      <button
+        onClick={() => setShowSwitcher(true)}
+        className="min-h-[44px] px-3 rounded-lg bg-white/10 text-white text-sm font-medium flex items-center gap-1.5 shrink-0 active:bg-white/15"
+      >
+        <span>Tabs</span>
+        {tabs.length > 0 && (
+          <span className="min-w-[20px] h-5 px-1.5 rounded-full bg-[var(--color-primary)] text-white text-[10px] font-bold flex items-center justify-center">
+            {tabs.length}
+          </span>
+        )}
+        <span className="text-xs opacity-60">{"\u25BE"}</span>
+      </button>
+    </div>
+  );
+
+  const tabPanel = (
+    <div className="w-full flex flex-col h-full">
+      {/* Hero (desktop only \u2014 on mobile it lives above the panel toggle so it's
+          visible from both Menu and Order views) */}
+      <div className="hidden md:block">{activeTabHero}</div>
 
       {/* Active tab content */}
       {!activeTab ? (
         <div className="flex-1 flex items-center justify-center text-white/30">
-          <div className="text-center">
+          <div className="text-center px-4">
             <p className="text-4xl mb-3">{"\uD83E\uDDFE"}</p>
             <p className="font-medium">No tab selected</p>
-            <p className="text-sm mt-1">Select a tab or open a new one</p>
+            <p className="text-sm mt-1">Tap Tabs above to pick a room or open one</p>
           </div>
         </div>
       ) : (
         <>
-          {/* Guest info */}
-          <div className="shrink-0 px-4 py-2 border-b border-white/5 flex items-center justify-between">
-            <div>
-              <p className="font-bold text-sm">{activeTab.guest_name}</p>
-              {activeTab.room_id && (
-                <p className="text-xs text-white/50">{activeTab.room_id}</p>
-              )}
+          {/* Resume strip — shown when this tab is on hold */}
+          {activeTab.notes?.includes("ON HOLD") && (
+            <div className="shrink-0 px-3 py-2 bg-yellow-500/10 border-b border-yellow-500/30 flex items-center gap-3">
+              <span className="text-lg">{"⏸️"}</span>
+              <p className="flex-1 text-sm font-medium text-yellow-300">
+                Tab on hold
+              </p>
+              <button
+                onClick={handleResume}
+                className="min-h-[44px] px-4 rounded-lg bg-yellow-500 text-black text-sm font-bold active:scale-95 transition-transform"
+              >
+                Resume
+              </button>
             </div>
-            {activeTab.notes?.includes("ON HOLD") && (
-              <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded-full font-medium">
-                On Hold
-              </span>
-            )}
-          </div>
+          )}
 
           {/* Order list */}
           <div className="flex-1 overflow-y-auto">
@@ -551,6 +598,11 @@ export default function POSView() {
       </div>
 
       {/* Desktop: two-column layout / Mobile: toggle */}
+      {/* Mobile active-tab context — always visible so Menu view knows the target */}
+      <div className="md:hidden shrink-0 mb-2 bg-[var(--color-surface)] rounded-xl border border-white/10 overflow-hidden">
+        {activeTabHero}
+      </div>
+
       {/* Mobile toggle (< 768px) */}
       <div className="md:hidden shrink-0 flex mb-2">
         <button
@@ -614,6 +666,36 @@ export default function POSView() {
           tabId={activeTab._id}
           onSettled={handleSettled}
           onClose={() => setShowSettle(false)}
+        />
+      )}
+
+      {/* Out-of-stock confirmation */}
+      {oosPrompt && (
+        <OOSConfirmSheet
+          itemName={oosPrompt.menuItem.name}
+          currentStock={oosPrompt.menuItem.current_stock ?? 0}
+          onCancel={() => setOosPrompt(null)}
+          onConfirm={confirmOos}
+        />
+      )}
+
+      {/* Tab switcher sheet */}
+      {showSwitcher && (
+        <TabSwitcherSheet
+          occupiedRooms={occupiedRooms}
+          tabs={tabs}
+          activeTabId={activeTabId}
+          onSelect={(tabId) => {
+            setActiveTabId(tabId);
+            setMobilePanel("tab");
+          }}
+          onStartForRoom={async (room) => {
+            const newTab = await openTab(room.guest_name, room.room_id);
+            setActiveTabId(newTab._id);
+            setMobilePanel("tab");
+            await load();
+          }}
+          onClose={() => setShowSwitcher(false)}
         />
       )}
     </div>

@@ -19,12 +19,12 @@ export default async function TreksPage() {
   );
 
   return (
-    <main className="min-h-screen bg-stone-50">
+    <main className="min-h-screen bg-stone-50 dark:bg-stone-950">
       <div className="mx-auto max-w-6xl px-4 py-16 sm:px-6 lg:px-8">
-        <h1 className="text-3xl font-bold tracking-tight text-stone-900 sm:text-4xl">
+        <h1 className="text-3xl font-bold tracking-tight text-stone-900 sm:text-4xl dark:text-stone-100">
           Explore Trek Routes
         </h1>
-        <p className="mt-3 text-lg text-stone-600">
+        <p className="mt-3 text-lg text-stone-600 dark:text-stone-300">
           Choose a trek route to browse available lodges along the trail.
         </p>
 
@@ -35,7 +35,7 @@ export default async function TreksPage() {
               <Link
                 key={route.key}
                 href={`/treks/${route.slug}`}
-                className="group overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-stone-200 transition hover:shadow-md hover:ring-emerald-300"
+                className="group overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-stone-200 transition hover:shadow-md hover:ring-emerald-300 dark:bg-stone-900 dark:ring-stone-800"
               >
                 <div
                   className={`bg-gradient-to-br ${route.gradient} px-6 py-8 text-white`}
@@ -46,10 +46,10 @@ export default async function TreksPage() {
                   </p>
                 </div>
                 <div className="px-6 py-4">
-                  <p className="text-sm leading-relaxed text-stone-600">
+                  <p className="text-sm leading-relaxed text-stone-600 dark:text-stone-300">
                     {route.description}
                   </p>
-                  <span className="mt-3 inline-block text-sm font-medium text-emerald-700 group-hover:underline">
+                  <span className="mt-3 inline-block text-sm font-medium text-emerald-700 group-hover:underline dark:text-emerald-400">
                     View lodges &rarr;
                   </span>
                 </div>

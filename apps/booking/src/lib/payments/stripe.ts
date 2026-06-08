@@ -47,6 +47,7 @@ export const stripeProvider: PaymentProvider = {
       success: session.payment_status === "paid",
       providerTxnId: (session.payment_intent as string) ?? session.id,
       amount: (session.amount_total ?? 0) / 100,
+      metadata: { bookingRef: session.metadata?.bookingRef ?? null },
     };
   },
 };

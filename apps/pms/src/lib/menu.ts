@@ -108,6 +108,24 @@ export async function decrementStock(
   if (found) await saveMenu(categories);
 }
 
+export async function incrementStock(
+  itemId: string,
+  quantity: number
+): Promise<void> {
+  const menu = await getMenu();
+  if (!menu) return;
+  let found = false;
+  const categories = menu.categories.map((cat) => ({
+    ...cat,
+    items: cat.items.map((item) => {
+      if (item.id !== itemId || !item.track_stock || item.current_stock == null) return item;
+      found = true;
+      return { ...item, current_stock: item.current_stock + quantity };
+    }),
+  }));
+  if (found) await saveMenu(categories);
+}
+
 export interface LowStockItem {
   categoryId: string;
   categoryName: string;

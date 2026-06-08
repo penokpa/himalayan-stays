@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { completePayment } from "@/lib/payments";
 import Stripe from "stripe";
 
+// Pinned to nodejs runtime: Edge can't reliably hand the raw body bytes
+// that the HMAC signature is computed over.
+export const runtime = "nodejs";
+
 export async function POST(request: NextRequest) {
   const body = await request.text();
   const signature = request.headers.get("stripe-signature");
@@ -12,14 +16,25 @@ export async function POST(request: NextRequest) {
 
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!webhookSecret) {
-    console.error("STRIPE_WEBHOOK_SECRET not configured");
+    console.error("[stripe/webhook] STRIPE_WEBHOOK_SECRET not configured");
     return NextResponse.json({ error: "Webhook not configured" }, { status: 500 });
   }
 
-  try {
-    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "");
-    const event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+  const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? "");
 
+  let event: Stripe.Event;
+  try {
+    event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
+  } catch (err) {
+    // SignatureVerificationError, replay protection, or malformed payload.
+    console.error(
+      "[stripe/webhook] Signature verification failed:",
+      err instanceof Error ? err.message : err
+    );
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
+  try {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object;
       const bookingRef = session.metadata?.bookingRef;
@@ -37,7 +52,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ received: true });
   } catch (error) {
-    console.error("Stripe webhook error:", error);
-    return NextResponse.json({ error: "Webhook failed" }, { status: 400 });
+    // Signature was valid but processing failed (DB error, etc).
+    // Return 500 so Stripe retries.
+    console.error("[stripe/webhook] Processing error:", error);
+    return NextResponse.json({ error: "Processing failed" }, { status: 500 });
   }
 }

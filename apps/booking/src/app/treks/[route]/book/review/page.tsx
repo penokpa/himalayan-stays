@@ -102,7 +102,9 @@ export default function ReviewPage() {
             const checkOut = checkIn
               ? calculateCheckOutDate(checkIn, stop.nights)
               : null;
-            const legTotal = stop.pricePerNight * stop.nights;
+            const legTotal = ctx.legTotal(i);
+            const avgPerNight = stop.nights > 0 ? legTotal / stop.nights : stop.pricePerNight;
+            const seasonal = Math.round(avgPerNight) !== stop.pricePerNight;
 
             return (
               <div key={i} className="relative flex gap-4 pb-6 last:pb-0">
@@ -115,9 +117,9 @@ export default function ReviewPage() {
                   {i + 1}
                 </div>
                 {/* Content */}
-                <div className="flex-1">
-                  <div className="flex items-start justify-between">
-                    <div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
                       <h3 className="font-semibold text-stone-900">{stop.lodgeName}</h3>
                       <p className="text-sm text-stone-500">
                         {stop.lodgeVillage}
@@ -125,7 +127,7 @@ export default function ReviewPage() {
                           ` · ${stop.lodgeAltitude.toLocaleString()}m`}
                       </p>
                     </div>
-                    <span className="text-sm font-semibold text-emerald-700">
+                    <span className="shrink-0 whitespace-nowrap text-sm font-semibold text-emerald-700">
                       NPR {legTotal.toLocaleString()}
                     </span>
                   </div>
@@ -137,7 +139,15 @@ export default function ReviewPage() {
                     )}
                     {stop.nights} {stop.nights === 1 ? "night" : "nights"} &middot;{" "}
                     {stop.roomName} ({ROOM_TYPE_LABELS[stop.roomType] ?? stop.roomType})
-                    &middot; NPR {stop.pricePerNight.toLocaleString()}/night
+                    &middot; NPR {Math.round(avgPerNight).toLocaleString()}/night
+                    {seasonal && (
+                      <span
+                        className="ml-1 text-xs text-amber-700"
+                        title={`Base price NPR ${stop.pricePerNight.toLocaleString()}/night with peak-season pricing applied`}
+                      >
+                        (peak)
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -178,12 +188,12 @@ export default function ReviewPage() {
         <h2 className="font-semibold text-stone-900">Price Breakdown</h2>
         <div className="mt-3 space-y-1 text-sm text-stone-600">
           {ctx.stops.map((stop, i) => (
-            <div key={i} className="flex justify-between">
-              <span>
+            <div key={i} className="flex items-start justify-between gap-3">
+              <span className="min-w-0 flex-1">
                 {stop.lodgeName} &times; {stop.nights}{" "}
                 {stop.nights === 1 ? "night" : "nights"}
               </span>
-              <span>NPR {(stop.pricePerNight * stop.nights).toLocaleString()}</span>
+              <span className="shrink-0 whitespace-nowrap">NPR {ctx.legTotal(i).toLocaleString()}</span>
             </div>
           ))}
         </div>

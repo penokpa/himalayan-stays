@@ -1,19 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { signIn } from "next-auth/react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function RegisterPage() {
-  const router = useRouter();
-
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -43,20 +40,8 @@ export default function RegisterPage() {
         throw new Error(data.error || "Registration failed");
       }
 
-      // Auto-login after registration
-      const signInResult = await signIn("credentials", {
-        email,
-        password,
-        redirect: false,
-      });
-
-      if (signInResult?.error) {
-        // Registration succeeded but auto-login failed — redirect to login
-        router.push("/login");
-      } else {
-        router.push("/");
-        router.refresh();
-      }
+      // Account created — show "check your email" state
+      setSubmitted(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed");
     } finally {
@@ -69,19 +54,39 @@ export default function RegisterPage() {
       <div className="w-full max-w-md">
         <div className="rounded-xl bg-white p-8 shadow-sm ring-1 ring-stone-200">
           <h1 className="text-center text-2xl font-bold text-stone-900">
-            Create Account
+            {submitted ? "Check your email" : "Create Account"}
           </h1>
           <p className="mt-2 text-center text-sm text-stone-500">
-            Join Himalayan Stays to book your trek
+            {submitted
+              ? "We sent a confirmation link to your email."
+              : "Join Himalayan Stays to book your trek"}
           </p>
 
-          {error && (
-            <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
-              {error}
+          {submitted ? (
+            <div className="mt-6 space-y-3">
+              <div className="rounded-lg bg-emerald-50 p-4 text-sm text-emerald-900 ring-1 ring-emerald-200">
+                <p className="font-medium">Account created!</p>
+                <p className="mt-1">
+                  We just emailed a confirmation link to <strong>{email}</strong>.
+                  Click it to activate your account and sign in. The link expires in 24 hours.
+                </p>
+              </div>
+              <Link
+                href="/login"
+                className="block w-full rounded-lg bg-emerald-700 px-4 py-2.5 text-center text-sm font-semibold text-white shadow-sm transition hover:bg-emerald-800"
+              >
+                Back to sign in
+              </Link>
             </div>
-          )}
+          ) : (
+            <>
+              {error && (
+                <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
+                  {error}
+                </div>
+              )}
 
-          <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+              <form onSubmit={handleSubmit} className="mt-6 space-y-4">
             <div>
               <label
                 htmlFor="name"
@@ -164,6 +169,8 @@ export default function RegisterPage() {
               {loading ? "Creating account..." : "Create Account"}
             </button>
           </form>
+            </>
+          )}
 
           <p className="mt-6 text-center text-sm text-stone-500">
             Already have an account?{" "}

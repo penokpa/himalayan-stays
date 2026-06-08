@@ -62,7 +62,19 @@ export default function PaymentMethodSelector({
     setProcessing(true);
 
     if (selected === "CASH") {
-      window.location.href = `/booking/${bookingRef}/confirmation`;
+      try {
+        const res = await fetch(`/api/bookings/${bookingRef}/confirm-cash`, {
+          method: "POST",
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Failed to confirm booking");
+        }
+        window.location.href = `/booking/${bookingRef}/confirmation?payment=cash`;
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to confirm");
+        setProcessing(false);
+      }
       return;
     }
 

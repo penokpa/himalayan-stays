@@ -31,3 +31,26 @@ export function calculateCheckOutDate(checkInDate: Date, nights: number): Date {
 export function formatDateISO(date: Date): string {
   return date.toISOString().split("T")[0];
 }
+
+// Bookings that have been PENDING longer than this without payment selection
+// no longer block availability — the user abandoned the form.
+export const PENDING_HOLD_MINUTES = 30;
+
+// Builds a Prisma `where` filter for bookingLeg overlap that excludes:
+//  - cancelled / no-show legs
+//  - legs whose parent booking is PENDING and older than PENDING_HOLD_MINUTES
+export function activeOverlapWhere(roomId: string, checkIn: Date, checkOut: Date) {
+  const staleCutoff = new Date(Date.now() - PENDING_HOLD_MINUTES * 60 * 1000);
+  return {
+    roomId,
+    status: { notIn: ["CANCELLED" as const, "NO_SHOW" as const] },
+    checkInDate: { lt: checkOut },
+    checkOutDate: { gt: checkIn },
+    booking: {
+      OR: [
+        { status: { not: "PENDING" as const } },
+        { status: "PENDING" as const, createdAt: { gte: staleCutoff } },
+      ],
+    },
+  };
+}

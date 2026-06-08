@@ -63,7 +63,6 @@ const lodgeDefs = [
     amenities: { wifi: true, hotShower: true, charging: true, restaurant: true, bar: true, bakery: true },
     description: "Located in the bustling Sherpa capital, this lodge offers comfort and stunning views of Kongde Ri during your acclimatization days.",
     roomPrices: { PRIVATE_DOUBLE: 2500, PRIVATE_TWIN: 2000, PRIVATE_SINGLE: 1500, DORM: 1000 },
-    extraRooms: true,
   },
   {
     name: "Namche Hotel & Lodge",
@@ -78,6 +77,90 @@ const lodgeDefs = [
     amenities: { wifi: true, hotShower: true, charging: true, restaurant: true, bar: true },
     description: "Popular lodge in the heart of Namche with mountain views and a cozy common room.",
     roomPrices: { PRIVATE_DOUBLE: 2200, PRIVATE_TWIN: 1800, PRIVATE_SINGLE: 1300, DORM: 900 },
+  },
+  {
+    name: "Namche Sherpa Retreat",
+    slug: "namche-sherpa-retreat",
+    village: "Namche Bazaar",
+    district: "Solukhumbu",
+    altitude: 3440,
+    lat: 27.8073,
+    lng: 86.7148,
+    trailPosition: 2,
+    managedBy: ManagedBy.OWNER,
+    amenities: { wifi: true, hotShower: true, charging: true, restaurant: true, heater: true, bakery: true },
+    description: "Boutique retreat with heated rooms and a renowned bakery — a favourite acclimatization stop for guided groups.",
+    roomPrices: { PRIVATE_DOUBLE: 3200, PRIVATE_TWIN: 2700, PRIVATE_SINGLE: 2000, DORM: 1300 },
+  },
+  {
+    name: "Namche Khumbu View",
+    slug: "namche-khumbu-view",
+    village: "Namche Bazaar",
+    district: "Solukhumbu",
+    altitude: 3440,
+    lat: 27.8061,
+    lng: 86.7132,
+    trailPosition: 2,
+    managedBy: ManagedBy.PLATFORM,
+    amenities: { wifi: true, hotShower: true, charging: true, restaurant: true, garden: true, library: true },
+    description: "Panoramic terrace overlooking Kongde Ri with a quiet reading lounge — great for a low-key rest day.",
+    roomPrices: { PRIVATE_DOUBLE: 2800, PRIVATE_TWIN: 2300, PRIVATE_SINGLE: 1700, DORM: 1100 },
+  },
+  {
+    name: "Namche Budget Inn",
+    slug: "namche-budget-inn",
+    village: "Namche Bazaar",
+    district: "Solukhumbu",
+    altitude: 3440,
+    lat: 27.8058,
+    lng: 86.7128,
+    trailPosition: 2,
+    managedBy: ManagedBy.OWNER,
+    amenities: { charging: true, restaurant: true },
+    description: "Straightforward, affordable rooms with shared bathrooms — popular with budget trekkers and porters.",
+    roomPrices: { PRIVATE_DOUBLE: 1600, PRIVATE_TWIN: 1300, PRIVATE_SINGLE: 900, DORM: 500 },
+  },
+  {
+    name: "Namche Heritage Lodge",
+    slug: "namche-heritage-lodge",
+    village: "Namche Bazaar",
+    district: "Solukhumbu",
+    altitude: 3440,
+    lat: 27.8077,
+    lng: 86.7153,
+    trailPosition: 2,
+    managedBy: ManagedBy.HYBRID,
+    amenities: { wifi: true, hotShower: true, charging: true, restaurant: true, bar: true, bakery: true, heater: true },
+    description: "Restored stone-built lodge with Sherpa heritage decor, a wood-fired bar, and the highest-rated kitchen on the trail.",
+    roomPrices: { PRIVATE_DOUBLE: 4200, PRIVATE_TWIN: 3500, PRIVATE_SINGLE: 2600, DORM: 1600 },
+  },
+  {
+    name: "Namche Trekkers Home",
+    slug: "namche-trekkers-home",
+    village: "Namche Bazaar",
+    district: "Solukhumbu",
+    altitude: 3440,
+    lat: 27.8054,
+    lng: 86.7124,
+    trailPosition: 2,
+    managedBy: ManagedBy.OWNER,
+    amenities: { wifi: true, hotShower: true, charging: true, restaurant: true, heater: true },
+    description: "Family-run lodge five minutes from the main square — solid heating, hot showers, and home-cooked dal bhat.",
+    roomPrices: { PRIVATE_DOUBLE: 2400, PRIVATE_TWIN: 2000, PRIVATE_SINGLE: 1400, DORM: 800 },
+  },
+  {
+    name: "Namche Summit Stay",
+    slug: "namche-summit-stay",
+    village: "Namche Bazaar",
+    district: "Solukhumbu",
+    altitude: 3440,
+    lat: 27.8082,
+    lng: 86.7159,
+    trailPosition: 2,
+    managedBy: ManagedBy.PLATFORM,
+    amenities: { wifi: true, hotShower: true, charging: true, restaurant: true, bar: true, oxygenAvailable: true, heater: true },
+    description: "Upscale stay with oxygen-monitored rooms and a Western-style menu — popular with expedition teams.",
+    roomPrices: { PRIVATE_DOUBLE: 4800, PRIVATE_TWIN: 4000, PRIVATE_SINGLE: 3000, DORM: 1800 },
   },
   {
     name: "Tengboche Mountain Lodge",
@@ -222,6 +305,23 @@ async function main() {
   console.log("🏔️  Himalayan Stays — Seed Script");
   console.log("==================================\n");
 
+    // ── 0. Guard: refuse to seed over real bookings ──
+    if (process.env.SEED_FORCE !== "1") {
+      const [bookingCount, tabCount] = await Promise.all([
+        prisma.booking.count(),
+        prisma.guestTab.count(),
+      ]);
+      if (bookingCount > 0 || tabCount > 0) {
+        console.error(
+          `\n⛔  Refusing to seed: found ${bookingCount} booking(s) and ${tabCount} guest tab(s) in the database.\n` +
+            `    Reseeding could leave orphaned records and FK constraint failures.\n\n` +
+            `    To wipe and reseed:  pnpm db:reset\n` +
+            `    To bypass this guard: SEED_FORCE=1 pnpm db:generate ...\n`
+        );
+        process.exit(1);
+      }
+    }
+
     // ── 1. Users ──
     console.log("👤 Upserting users...");
 
@@ -241,17 +341,46 @@ async function main() {
     });
     console.log(`  ✓ Admin: ${admin.id}`);
 
-    const owner = await prisma.user.upsert({
+    const pemba = await prisma.user.upsert({
       where: { email: "owner@himalayanstays.com" },
-      update: {},
+      update: { emailVerifiedAt: new Date() },
       create: {
         email: "owner@himalayanstays.com",
         name: "Pemba Sherpa",
         role: "LODGE_OWNER",
         passwordHash: ownerHash,
+        emailVerifiedAt: new Date(),
       },
     });
-    console.log(`  ✓ Lodge Owner (Pemba Sherpa): ${owner.id}`);
+    console.log(`  ✓ Lodge Owner (Pemba Sherpa): ${pemba.id}`);
+
+    // Per-lodge owners. Pemba keeps Namche Hotel & Lodge so the canonical
+    // owner@himalayanstays.com login still has lodges + bookings. Every other
+    // lodge gets a unique owner alias so /owner/bookings isolates per lodge.
+    const PEMBA_LODGE_SLUG = "namche-hotel-lodge";
+    const ownerByLodgeSlug: Record<string, string> = {};
+    for (const def of lodgeDefs) {
+      if (def.slug === PEMBA_LODGE_SLUG) {
+        ownerByLodgeSlug[def.slug] = pemba.id;
+        continue;
+      }
+      const email = `owner+${def.slug}@himalayanstays.com`;
+      const ownerName = `${def.name.replace(/\s+(Lodge|Inn|Hotel|Stay|House|Retreat|Home).*$/i, "")} Owner`;
+      const lodgeOwner = await prisma.user.upsert({
+        where: { email },
+        update: { emailVerifiedAt: new Date() },
+        create: {
+          email,
+          name: ownerName,
+          role: "LODGE_OWNER",
+          passwordHash: ownerHash,
+          emailVerifiedAt: new Date(),
+        },
+        select: { id: true },
+      });
+      ownerByLodgeSlug[def.slug] = lodgeOwner.id;
+    }
+    console.log(`  ✓ Per-lodge owners ensured for ${lodgeDefs.length} lodges`);
 
     const trekker = await prisma.user.upsert({
       where: { email: "trekker@example.com" },
@@ -337,6 +466,14 @@ async function main() {
     const createdLodges: Record<string, string> = {}; // slug -> id
 
     for (const def of lodgeDefs) {
+      // 3 stable picsum placeholders per lodge so cards have cover images
+      // immediately after seed. Owners can replace these via the photos UI.
+      const placeholderPhotos = [
+        `https://picsum.photos/seed/lodge-${def.slug}-1/1200/800`,
+        `https://picsum.photos/seed/lodge-${def.slug}-2/1200/800`,
+        `https://picsum.photos/seed/lodge-${def.slug}-3/1200/800`,
+      ];
+
       const lodge = await prisma.lodge.create({
         data: {
           name: def.name,
@@ -349,34 +486,54 @@ async function main() {
           trailPosition: def.trailPosition,
           village: def.village,
           district: def.district,
-          ownerId: owner.id,
+          ownerId: ownerByLodgeSlug[def.slug],
           managedBy: def.managedBy,
           amenities: def.amenities,
           isActive: true,
-          photos: [],
+          photos: placeholderPhotos,
         },
       });
       createdLodges[def.slug] = lodge.id;
       console.log(`  ✓ ${def.name} (${def.altitude}m) — ${lodge.id}`);
 
       // ── Rooms ──
-      const roomDefs: { name: string; roomType: RoomType; capacity: number; price: number }[] = [
-        { name: "Private Double", roomType: RoomType.PRIVATE_DOUBLE, capacity: 2, price: def.roomPrices.PRIVATE_DOUBLE },
-        { name: "Private Twin", roomType: RoomType.PRIVATE_TWIN, capacity: 2, price: def.roomPrices.PRIVATE_TWIN },
-        { name: "Private Single", roomType: RoomType.PRIVATE_SINGLE, capacity: 1, price: def.roomPrices.PRIVATE_SINGLE },
-        { name: "Dorm Bed", roomType: RoomType.DORM, capacity: 6, price: def.roomPrices.DORM },
-      ];
-
-      // Extra rooms for Namche
-      if (def.extraRooms) {
-        roomDefs.push(
-          { name: "Room 5", roomType: RoomType.PRIVATE_DOUBLE, capacity: 2, price: def.roomPrices.PRIVATE_DOUBLE },
-          { name: "Room 6", roomType: RoomType.PRIVATE_TWIN, capacity: 2, price: def.roomPrices.PRIVATE_TWIN },
-        );
+      // Multiple physical units per type so booking one doesn't lock the whole
+      // category on the lodge detail page (which now groups by roomType).
+      const roomDefs: { name: string; roomType: RoomType; capacity: number; price: number }[] = [];
+      for (let i = 1; i <= 4; i++) {
+        roomDefs.push({
+          name: `Private Double ${i}`,
+          roomType: RoomType.PRIVATE_DOUBLE,
+          capacity: 2,
+          price: def.roomPrices.PRIVATE_DOUBLE,
+        });
       }
+      for (let i = 1; i <= 3; i++) {
+        roomDefs.push({
+          name: `Private Twin ${i}`,
+          roomType: RoomType.PRIVATE_TWIN,
+          capacity: 2,
+          price: def.roomPrices.PRIVATE_TWIN,
+        });
+      }
+      for (let i = 1; i <= 3; i++) {
+        roomDefs.push({
+          name: `Private Single ${i}`,
+          roomType: RoomType.PRIVATE_SINGLE,
+          capacity: 1,
+          price: def.roomPrices.PRIVATE_SINGLE,
+        });
+      }
+      roomDefs.push({
+        name: "Dorm Bed",
+        roomType: RoomType.DORM,
+        capacity: 6,
+        price: def.roomPrices.DORM,
+      });
 
+      const createdRooms: { id: string; basePriceNpr: number }[] = [];
       for (const room of roomDefs) {
-        await prisma.room.create({
+        const created = await prisma.room.create({
           data: {
             lodgeId: lodge.id,
             name: room.name,
@@ -386,8 +543,37 @@ async function main() {
             isActive: true,
           },
         });
+        createdRooms.push({ id: created.id, basePriceNpr: room.price });
       }
       console.log(`    → ${roomDefs.length} rooms created`);
+
+      // ── Season pricing (EBC trekking calendar) ──
+      // Peak: Oct + Nov + Apr + May (+50%), Off: Jun-Aug (-30%)
+      const seasonRows = createdRooms.flatMap((r) => [
+        {
+          roomId: r.id,
+          season: "PEAK" as const,
+          startDate: new Date("2026-10-01"),
+          endDate: new Date("2026-11-30"),
+          priceNpr: Math.round(r.basePriceNpr * 1.5),
+        },
+        {
+          roomId: r.id,
+          season: "PEAK" as const,
+          startDate: new Date("2026-04-01"),
+          endDate: new Date("2026-05-31"),
+          priceNpr: Math.round(r.basePriceNpr * 1.5),
+        },
+        {
+          roomId: r.id,
+          season: "OFF" as const,
+          startDate: new Date("2026-06-01"),
+          endDate: new Date("2026-08-31"),
+          priceNpr: Math.round(r.basePriceNpr * 0.7),
+        },
+      ]);
+      await prisma.seasonPricing.createMany({ data: seasonRows });
+      console.log(`    → ${seasonRows.length} season pricing rows created`);
 
       // ── Menu categories & items ──
       const categoryNames = ["Food", "Drinks", "Services"] as const;
@@ -465,8 +651,8 @@ async function main() {
     // ── Done ──
     console.log("\n==================================");
     console.log("✅ Seed complete!");
-    console.log(`   • 3 users (admin, lodge owner, trekker)`);
-    console.log(`   • ${lodgeDefs.length} lodges with rooms and menus`);
+    console.log(`   • ${2 + lodgeDefs.length} users (admin, trekker, ${lodgeDefs.length} per-lodge owners incl. Pemba)`);
+    console.log(`   • ${lodgeDefs.length} lodges with 11 rooms each + menus`);
     console.log(`   • 1 itinerary template with ${stops.length} stops`);
 }
 

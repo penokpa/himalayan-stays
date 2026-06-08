@@ -15,7 +15,9 @@ export default function StepIndicator() {
   // Determine current step from pathname
   const bookBase = pathname.split("/book")[0] + "/book";
   const suffix = pathname.slice(bookBase.length);
-  const currentIndex = STEPS.findIndex((s) => s.segment === suffix);
+  // /custom is also part of the Itinerary step
+  const normalized = suffix === "/custom" ? "" : suffix;
+  const currentIndex = STEPS.findIndex((s) => s.segment === normalized);
   const activeStep = currentIndex >= 0 ? currentIndex : 0;
 
   return (

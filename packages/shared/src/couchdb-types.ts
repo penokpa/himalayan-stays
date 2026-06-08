@@ -64,6 +64,13 @@ export interface MenuItemLocal {
   is_active: boolean;
 }
 
+export type SettleMethod = "CASH" | "ESEWA" | "KHALTI" | "INCLUDED_IN_BOOKING";
+
+export interface TabPayment {
+  method: SettleMethod;
+  amount_npr: number;
+}
+
 export interface TabDoc extends CouchDoc {
   type: "tab";
   lodge_id: string;
@@ -75,7 +82,7 @@ export interface TabDoc extends CouchDoc {
   closed_at?: string;
   status: "OPEN" | "SETTLED" | "VOID";
   tab_total_npr: number;
-  settlement_method?: "CASH" | "ESEWA" | "KHALTI" | "INCLUDED_IN_BOOKING";
+  payments?: TabPayment[];
   notes?: string;
 }
 
@@ -89,6 +96,7 @@ export interface TabItemLocal {
   added_at: string;
   voided: boolean;
   void_reason?: string;
+  sold_oos?: boolean;
 }
 
 export interface StockDoc extends CouchDoc {

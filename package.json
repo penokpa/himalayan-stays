@@ -9,6 +9,8 @@
     "lint": "pnpm -r lint",
     "db:generate": "pnpm --filter @himalayan-stays/shared prisma generate",
     "db:push": "pnpm --filter @himalayan-stays/shared prisma db push",
-    "db:migrate": "pnpm --filter @himalayan-stays/shared prisma migrate dev"
+    "db:migrate": "pnpm --filter @himalayan-stays/shared prisma migrate dev",
+    "db:seed": "cd packages/shared && npx tsx prisma/seed.ts",
+    "db:reset": "pnpm --filter @himalayan-stays/shared exec prisma db push --force-reset --skip-generate && cd packages/shared && SEED_FORCE=1 npx tsx prisma/seed.ts"
   }
 }

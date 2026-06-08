@@ -138,7 +138,7 @@ Lodges are grouped by village with trail-position ordering. Trekkers can see all
 ### Seed Data
 The seed script creates:
 - 3 test users (admin, lodge owner, trekker)
-- 12 EBC lodges (2 per village: Lukla, Namche, Tengboche, Dingboche, Lobuche, Gorak Shep)
+- 11 EBC lodges (2 per village: Lukla, Namche, Tengboche, Dingboche, Lobuche; 1 in Gorak Shep)
 - 4 rooms per lodge with altitude-scaled pricing
 - Menu items with Nepali translations
 - 1 template itinerary ("Classic EBC Trek" — 12 days, 6 stops)
@@ -185,6 +185,8 @@ pnpm lint            # Lint all apps
 pnpm db:generate     # Generate Prisma client
 pnpm db:push         # Push schema to database
 pnpm db:migrate      # Run database migrations
+pnpm db:seed         # Seed the database (guarded: refuses if any Booking/GuestTab rows exist)
+pnpm db:reset        # Wipe schema + reseed (destructive — use during dev only)
 ```
 
 ## Roadmap

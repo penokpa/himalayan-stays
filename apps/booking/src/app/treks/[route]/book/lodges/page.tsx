@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useItineraryBuilder } from "../context";
 import { ROOM_TYPE_LABELS } from "@/lib/booking-utils";
+import { AMENITY_LABELS } from "@/lib/amenities";
 
 interface Room {
   id: string;
@@ -24,19 +25,6 @@ interface Lodge {
   trailPosition: number;
   rooms?: Room[];
 }
-
-const AMENITY_LABELS: Record<string, string> = {
-  wifi: "WiFi",
-  hotShower: "Hot Shower",
-  charging: "Charging",
-  restaurant: "Restaurant",
-  bar: "Bar",
-  bakery: "Bakery",
-  heater: "Heater",
-  oxygenAvailable: "Oxygen",
-  garden: "Garden",
-  library: "Library",
-};
 
 export default function LodgeRoomSelectionPage() {
   const { route } = useParams<{ route: string }>();
@@ -154,6 +142,19 @@ export default function LodgeRoomSelectionPage() {
           const rooms = getRoomsForLodge(stop.lodgeId);
           const isExpanded = expandedStop === i;
 
+          // If a room is selected and the trek dates fall in a non-base season,
+          // ctx.legTotal() returns the season-adjusted total. Derive the
+          // multiplier so we can show peak-adjusted prices on every room card.
+          let seasonMultiplier = 1;
+          if (stop.roomId && stop.pricePerNight > 0 && stop.nights > 0) {
+            const expectedBase = stop.pricePerNight * stop.nights;
+            const actual = ctx.legTotal(i);
+            if (expectedBase > 0 && actual > 0) {
+              seasonMultiplier = actual / expectedBase;
+            }
+          }
+          const isPeak = seasonMultiplier > 1.01;
+
           return (
             <div
               key={i}
@@ -161,12 +162,12 @@ export default function LodgeRoomSelectionPage() {
             >
               {/* Stop header */}
               <div className="border-b border-stone-100 px-5 py-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
                     <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-700 text-xs font-bold text-white">
                       {i + 1}
                     </span>
-                    <div>
+                    <div className="min-w-0">
                       <h3 className="font-semibold text-stone-900">
                         {stop.lodgeVillage}
                       </h3>
@@ -185,9 +186,8 @@ export default function LodgeRoomSelectionPage() {
                     </div>
                   </div>
                   {stop.roomId && (
-                    <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
-                      NPR{" "}
-                      {(stop.pricePerNight * stop.nights).toLocaleString()}
+                    <span className="shrink-0 whitespace-nowrap rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">
+                      NPR {ctx.legTotal(i).toLocaleString()}
                     </span>
                   )}
                 </div>
@@ -304,15 +304,17 @@ export default function LodgeRoomSelectionPage() {
                     onClick={() =>
                       setExpandedStop(isExpanded ? null : i)
                     }
-                    className="flex w-full items-center justify-between text-sm font-medium text-stone-700"
+                    className="flex w-full items-center justify-between gap-3 text-left text-sm font-medium text-stone-700"
                   >
-                    <span>
+                    <span className="min-w-0 flex-1 truncate">
                       {stop.roomId
-                        ? `Selected: ${stop.roomName} (${ROOM_TYPE_LABELS[stop.roomType] ?? stop.roomType}) — NPR ${stop.pricePerNight.toLocaleString()}/night`
+                        ? `Selected: ${stop.roomName} (${ROOM_TYPE_LABELS[stop.roomType] ?? stop.roomType}) — NPR ${Math.round(
+                            stop.nights > 0 ? ctx.legTotal(i) / stop.nights : stop.pricePerNight
+                          ).toLocaleString()}/night`
                         : "Select a room"}
                     </span>
                     <svg
-                      className={`h-4 w-4 transition ${isExpanded ? "rotate-180" : ""}`}
+                      className={`h-4 w-4 shrink-0 transition ${isExpanded ? "rotate-180" : ""}`}
                       fill="none"
                       viewBox="0 0 24 24"
                       stroke="currentColor"
@@ -358,8 +360,18 @@ export default function LodgeRoomSelectionPage() {
                               </div>
                               <div className="mt-1 font-semibold text-emerald-700">
                                 NPR{" "}
-                                {Number(room.basePriceNpr).toLocaleString()}
+                                {Math.round(
+                                  Number(room.basePriceNpr) * seasonMultiplier
+                                ).toLocaleString()}
                                 /night
+                                {isPeak && (
+                                  <span
+                                    className="ml-1 text-xs font-medium text-amber-700"
+                                    title={`Base ${Number(room.basePriceNpr).toLocaleString()}/night, with peak-season pricing for your dates`}
+                                  >
+                                    (peak)
+                                  </span>
+                                )}
                               </div>
                             </button>
                           ))}
@@ -377,12 +389,19 @@ export default function LodgeRoomSelectionPage() {
       {/* Running total */}
       {ctx.grandTotal > 0 && (
         <div className="rounded-lg bg-white p-4 shadow-sm ring-1 ring-stone-200">
-          <div className="flex justify-between text-lg font-semibold">
-            <span className="text-stone-900">Estimated Total</span>
-            <span className="text-emerald-700">
+          <div className="flex items-center justify-between gap-3 text-lg font-semibold">
+            <span className="min-w-0 flex-1 text-stone-900">
+              {ctx.isQuoting ? "Calculating total..." : "Estimated Total"}
+            </span>
+            <span className="shrink-0 whitespace-nowrap text-emerald-700">
               NPR {ctx.grandTotal.toLocaleString()}
             </span>
           </div>
+          {ctx.quotedTotals.length > 0 && (
+            <p className="mt-1 text-xs text-stone-500">
+              Includes seasonal pricing for your selected dates.
+            </p>
+          )}
         </div>
       )}
 

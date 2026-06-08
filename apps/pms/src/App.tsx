@@ -3,9 +3,10 @@ import RoomGrid from "./components/RoomGrid";
 import POSView from "@/components/POSView";
 import DailySales from "@/components/DailySales";
 import Settings from "@/components/Settings";
+import WalkInsList from "@/components/WalkInsList";
 import { seedDemoData } from "@/lib/seed";
 
-type Tab = "rooms" | "pos" | "sales" | "settings";
+type Tab = "rooms" | "pos" | "walkins" | "sales" | "settings";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<Tab>("rooms");
@@ -34,6 +35,7 @@ export default function App() {
       <main className="flex-1 p-4">
         {activeTab === "rooms" && <RoomGrid />}
         {activeTab === "pos" && <POSView />}
+        {activeTab === "walkins" && <WalkInsList />}
         {activeTab === "sales" && <DailySales />}
         {activeTab === "settings" && <Settings />}
       </main>
@@ -43,25 +45,31 @@ export default function App() {
         <div className="flex">
           <NavButton
             label="Rooms"
-            icon={"\uD83C\uDFE0"}
+            icon={"🏠"}
             active={activeTab === "rooms"}
             onClick={() => setActiveTab("rooms")}
           />
           <NavButton
             label="POS"
-            icon={"\uD83E\uDDFE"}
+            icon={"🧾"}
             active={activeTab === "pos"}
             onClick={() => setActiveTab("pos")}
           />
           <NavButton
+            label="Walk-ins"
+            icon={"🚶"}
+            active={activeTab === "walkins"}
+            onClick={() => setActiveTab("walkins")}
+          />
+          <NavButton
             label="Sales"
-            icon={"\uD83D\uDCC8"}
+            icon={"📈"}
             active={activeTab === "sales"}
             onClick={() => setActiveTab("sales")}
           />
           <NavButton
             label="Settings"
-            icon={"\u2699\uFE0F"}
+            icon={"⚙️"}
             active={activeTab === "settings"}
             onClick={() => setActiveTab("settings")}
           />

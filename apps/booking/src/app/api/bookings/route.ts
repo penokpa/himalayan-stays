@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
-import { generateBookingRef } from "@/lib/booking-utils";
+import { generateBookingRef, activeOverlapWhere } from "@/lib/booking-utils";
+import { nprToUsd } from "@/lib/currency";
+import { quoteRoom } from "@/lib/pricing";
+import { logBookingEvent } from "@/lib/audit";
+import { evaluatePromo, consumePromo } from "@/lib/promo";
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,6 +19,7 @@ export async function POST(request: NextRequest) {
       guestEmail,
       groupSize,
       specialRequests,
+      promoCode,
     } = body;
 
     // Validate required fields
@@ -55,13 +60,9 @@ export async function POST(request: NextRequest) {
     }
 
     // Check availability — no overlapping active booking legs
+    // (stale PENDING bookings older than 30 min no longer block)
     const overlap = await prisma.bookingLeg.findFirst({
-      where: {
-        roomId,
-        status: { notIn: ["CANCELLED", "NO_SHOW"] },
-        checkInDate: { lt: checkOut },
-        checkOutDate: { gt: checkIn },
-      },
+      where: activeOverlapWhere(roomId, checkIn, checkOut),
     });
 
     if (overlap) {
@@ -71,12 +72,29 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Calculate nights and total
+    // Calculate nights and season-aware total
     const nightCount = Math.ceil(
       (checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)
     );
-    const pricePerNight = room.basePriceNpr;
-    const legTotal = pricePerNight.toNumber() * nightCount;
+    const quote = await quoteRoom(roomId, checkIn, checkOut);
+    const legTotal = quote.totalNpr;
+    const pricePerNight = legTotal / nightCount;
+
+    // Validate promo if supplied
+    let promoApplied: { id: string; code: string; discountNpr: number } | null = null;
+    let totalAfterDiscount = legTotal;
+    if (promoCode) {
+      const result = await evaluatePromo(String(promoCode), legTotal);
+      if (!result.ok) {
+        return NextResponse.json({ error: result.error }, { status: 400 });
+      }
+      promoApplied = {
+        id: result.code.id,
+        code: result.code.code,
+        discountNpr: result.discountNpr,
+      };
+      totalAfterDiscount = result.finalNpr;
+    }
 
     const bookingRef = generateBookingRef();
 
@@ -93,6 +111,11 @@ export async function POST(request: NextRequest) {
 
     // Create booking + booking leg in a transaction
     const booking = await prisma.$transaction(async (tx) => {
+      // Reserve the promo consumption inside the transaction (race-safe)
+      if (promoApplied) {
+        const ok = await consumePromo(promoApplied.id, tx);
+        if (!ok) throw new Error("Promo code reached its usage limit");
+      }
       const newBooking = await tx.booking.create({
         data: {
           bookingRef,
@@ -101,7 +124,10 @@ export async function POST(request: NextRequest) {
           status: "PENDING",
           groupSize: groupSize ?? 1,
           specialRequests: specialRequests ?? null,
-          totalPriceNpr: legTotal,
+          totalPriceNpr: totalAfterDiscount,
+          totalPriceUsd: nprToUsd(totalAfterDiscount),
+          promoCodeId: promoApplied?.id ?? null,
+          discountNpr: promoApplied?.discountNpr ?? null,
         },
       });
 
@@ -117,6 +143,24 @@ export async function POST(request: NextRequest) {
           legTotal,
           status: "PENDING",
         },
+      });
+
+      await logBookingEvent({
+        bookingId: newBooking.id,
+        type: "booking_created",
+        actor: { email: guestEmail, role: "TREKKER" },
+        metadata: {
+          lodgeId,
+          roomId,
+          checkIn: checkIn.toISOString().slice(0, 10),
+          checkOut: checkOut.toISOString().slice(0, 10),
+          grossNpr: legTotal,
+          discountNpr: promoApplied?.discountNpr ?? 0,
+          totalNpr: totalAfterDiscount,
+          promoCode: promoApplied?.code ?? null,
+          source: "single_lodge",
+        },
+        tx,
       });
 
       return newBooking;

@@ -12,6 +12,7 @@ import {
   voidTabItem,
   settleTab,
   holdTab,
+  unholdTab,
   getTab,
   getOpenTabs,
   getDailySales,
@@ -214,7 +215,8 @@ describe("POS Calculations", () => {
       const settled = await getTab(tab._id);
 
       expect(settled!.status).toBe("SETTLED");
-      expect(settled!.settlement_method).toBe("CASH");
+      expect(settled!.payments).toHaveLength(1);
+      expect(settled!.payments![0].method).toBe("CASH");
       expect(settled!.closed_at).toBeDefined();
     });
 
@@ -228,6 +230,38 @@ describe("POS Calculations", () => {
 
       expect(held!.status).toBe("OPEN"); // hold doesn't close the tab
       expect(held!.notes).toContain("ON HOLD");
+    });
+
+    it("unhold strips ON HOLD and clears notes when nothing else remains", async () => {
+      const tab = await openTab("Guest U1");
+      await holdTab(tab._id);
+      await unholdTab(tab._id);
+      const resumed = await getTab(tab._id);
+      expect(resumed!.status).toBe("OPEN");
+      expect(resumed!.notes).toBeUndefined();
+    });
+
+    it("unhold preserves other notes when present", async () => {
+      const tab = await openTab("Guest U2");
+      await holdTab(tab._id);
+      // Simulate a tab that had a prior note before being held
+      const held = await getTab(tab._id);
+      await holdTab(tab._id); // no-op-ish — sets notes to "ON HOLD; ON HOLD"
+      // Manually set a mixed notes string to simulate real-world use
+      const direct = await getTab(tab._id);
+      direct!.notes = "VIP guest; ON HOLD";
+      await (await import("@/lib/db")).putDoc(direct!);
+      await unholdTab(tab._id);
+      const resumed = await getTab(tab._id);
+      expect(resumed!.notes).toBe("VIP guest");
+      expect(held).toBeDefined();
+    });
+
+    it("unhold is idempotent on a tab that isn't held", async () => {
+      const tab = await openTab("Guest U3");
+      await unholdTab(tab._id);
+      const after = await getTab(tab._id);
+      expect(after!.notes).toBeUndefined();
     });
 
     it("settled tab no longer appears in getOpenTabs", async () => {
@@ -406,7 +440,181 @@ describe("POS Calculations", () => {
       await settleTab(tab._id, "CASH");
       const settled = await getTab(tab._id);
       expect(settled!.status).toBe("SETTLED");
-      expect(settled!.settlement_method).toBe("CASH");
+      expect(settled!.payments![0].method).toBe("CASH");
+    });
+  });
+
+  // ─── Split Settlement ───
+  describe("Split settlement", () => {
+    it("records multiple payments and aggregates by method", async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const tab = await openTab("Guest Split", "room-9");
+      const dalBhat = await getMenuItem("Meals", "Dal Bhat"); // 500
+      await addItemToTab(tab._id, dalBhat, 2); // 1000
+
+      await settleTab(tab._id, [
+        { method: "CASH", amount_npr: 600 },
+        { method: "ESEWA", amount_npr: 400 },
+      ]);
+
+      const settled = await getTab(tab._id);
+      expect(settled!.status).toBe("SETTLED");
+      expect(settled!.payments).toHaveLength(2);
+      expect(settled!.payments![0]).toEqual({ method: "CASH", amount_npr: 600 });
+      expect(settled!.payments![1]).toEqual({ method: "ESEWA", amount_npr: 400 });
+
+      const sales = await getDailySales(today);
+      expect(sales.cash_total).toBe(600);
+      expect(sales.digital_total).toBe(400);
+    });
+
+    it("aggregates Khalti alongside eSewa as digital", async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const tab = await openTab("Guest Khalti", "room-10");
+      const dalBhat = await getMenuItem("Meals", "Dal Bhat"); // 500
+      await addItemToTab(tab._id, dalBhat, 1);
+
+      await settleTab(tab._id, [
+        { method: "KHALTI", amount_npr: 300 },
+        { method: "CASH", amount_npr: 200 },
+      ]);
+
+      const sales = await getDailySales(today);
+      expect(sales.digital_total).toBe(300);
+      expect(sales.cash_total).toBe(200);
+    });
+
+    it("records split totals that exceed tab subtotal (with service charge)", async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const tab = await openTab("Guest Charge", "room-11");
+      const dalBhat = await getMenuItem("Meals", "Dal Bhat"); // 500
+      await addItemToTab(tab._id, dalBhat, 1);
+      // subtotal 500, service charge 50, total 550 — split 400 cash + 150 eSewa
+      await settleTab(tab._id, [
+        { method: "CASH", amount_npr: 400 },
+        { method: "ESEWA", amount_npr: 150 },
+      ]);
+
+      const sales = await getDailySales(today);
+      expect(sales.cash_total).toBe(400);
+      expect(sales.digital_total).toBe(150);
+    });
+  });
+
+  // ─── Stock Tracking ───
+  describe("Stock tracking on tab operations", () => {
+    it("decrements stock when a tracked item is added", async () => {
+      const snickers = await getMenuItem("Supplies", "Snickers"); // seed: 15
+      const tab = await openTab("Guest S", "room-1");
+      await addItemToTab(tab._id, snickers, 3);
+      const after = await getMenuItem("Supplies", "Snickers");
+      expect(after.current_stock).toBe(12);
+    });
+
+    it("does not touch stock for items without track_stock", async () => {
+      const dalBhat = await getMenuItem("Meals", "Dal Bhat");
+      expect(dalBhat.track_stock).toBe(false);
+      const tab = await openTab("Guest D", "room-1");
+      await addItemToTab(tab._id, dalBhat, 2);
+      const after = await getMenuItem("Meals", "Dal Bhat");
+      expect(after.current_stock).toBe(dalBhat.current_stock);
+    });
+
+    it("restores stock when a tab item is voided", async () => {
+      const snickers = await getMenuItem("Supplies", "Snickers");
+      const tab = await openTab("Guest S", "room-1");
+      await addItemToTab(tab._id, snickers, 2);
+      expect((await getMenuItem("Supplies", "Snickers")).current_stock).toBe(13);
+      const itemId = (await getTab(tab._id))!.items[0].id;
+      await voidTabItem(tab._id, itemId, "Wrong item");
+      expect((await getMenuItem("Supplies", "Snickers")).current_stock).toBe(15);
+    });
+
+    it("does not double-restore when void is called twice", async () => {
+      const snickers = await getMenuItem("Supplies", "Snickers");
+      const tab = await openTab("Guest S", "room-1");
+      await addItemToTab(tab._id, snickers, 2);
+      const itemId = (await getTab(tab._id))!.items[0].id;
+      await voidTabItem(tab._id, itemId, "Wrong");
+      await voidTabItem(tab._id, itemId, "Wrong again");
+      expect((await getMenuItem("Supplies", "Snickers")).current_stock).toBe(15);
+    });
+
+    it("deducts more stock when quantity is increased", async () => {
+      const snickers = await getMenuItem("Supplies", "Snickers");
+      const tab = await openTab("Guest S", "room-1");
+      await addItemToTab(tab._id, snickers, 2); // 15 → 13
+      const itemId = (await getTab(tab._id))!.items[0].id;
+      await updateItemQuantity(tab._id, itemId, 5); // delta -3, 13 → 10
+      expect((await getMenuItem("Supplies", "Snickers")).current_stock).toBe(10);
+    });
+
+    it("restores partial stock when quantity is decreased", async () => {
+      const snickers = await getMenuItem("Supplies", "Snickers");
+      const tab = await openTab("Guest S", "room-1");
+      await addItemToTab(tab._id, snickers, 5); // 15 → 10
+      const itemId = (await getTab(tab._id))!.items[0].id;
+      await updateItemQuantity(tab._id, itemId, 2); // delta +3, 10 → 13
+      expect((await getMenuItem("Supplies", "Snickers")).current_stock).toBe(13);
+    });
+
+    it("restores full quantity when quantity is set to 0 (auto-void)", async () => {
+      const snickers = await getMenuItem("Supplies", "Snickers");
+      const tab = await openTab("Guest S", "room-1");
+      await addItemToTab(tab._id, snickers, 3); // 15 → 12
+      const itemId = (await getTab(tab._id))!.items[0].id;
+      await updateItemQuantity(tab._id, itemId, 0); // restore all, 12 → 15
+      expect((await getMenuItem("Supplies", "Snickers")).current_stock).toBe(15);
+    });
+  });
+
+  // ─── Out-of-stock override ───
+  describe("Out-of-stock override", () => {
+    it("records sold_oos flag when added with the override", async () => {
+      const snickers = await getMenuItem("Supplies", "Snickers");
+      const tab = await openTab("Guest OOS", "room-1");
+      await addItemToTab(tab._id, snickers, 2, { soldOos: true });
+      const fresh = await getTab(tab._id);
+      expect(fresh!.items[0].sold_oos).toBe(true);
+    });
+
+    it("does not set sold_oos when added normally", async () => {
+      const snickers = await getMenuItem("Supplies", "Snickers");
+      const tab = await openTab("Guest Normal", "room-1");
+      await addItemToTab(tab._id, snickers, 1);
+      const fresh = await getTab(tab._id);
+      expect(fresh!.items[0].sold_oos).toBeUndefined();
+    });
+
+    it("flags sold_oos when quantity increase uses the override", async () => {
+      const snickers = await getMenuItem("Supplies", "Snickers");
+      const tab = await openTab("Guest Bump", "room-1");
+      await addItemToTab(tab._id, snickers, 1);
+      const itemId = (await getTab(tab._id))!.items[0].id;
+      await updateItemQuantity(tab._id, itemId, 3, { soldOos: true });
+      const fresh = await getTab(tab._id);
+      expect(fresh!.items[0].quantity).toBe(3);
+      expect(fresh!.items[0].sold_oos).toBe(true);
+    });
+
+    it("counts sold_oos units in daily sales (excludes voided)", async () => {
+      const today = new Date().toISOString().slice(0, 10);
+      const snickers = await getMenuItem("Supplies", "Snickers");
+      const choc = await getMenuItem("Supplies", "Chocolate Bar");
+
+      const tab1 = await openTab("Guest A", "room-1");
+      await addItemToTab(tab1._id, snickers, 2, { soldOos: true });
+
+      const tab2 = await openTab("Guest B", "room-2");
+      await addItemToTab(tab2._id, choc, 3, { soldOos: true });
+      const chocItemId = (await getTab(tab2._id))!.items[0].id;
+      await voidTabItem(tab2._id, chocItemId, "wrong");
+
+      const tab3 = await openTab("Guest C", "room-3");
+      await addItemToTab(tab3._id, snickers, 1); // normal — not oos
+
+      const sales = await getDailySales(today);
+      expect(sales.sold_oos_units).toBe(2); // only tab1's units, tab2 voided, tab3 not oos
     });
   });
 });

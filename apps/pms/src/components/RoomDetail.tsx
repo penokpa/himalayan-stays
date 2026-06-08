@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
-import type { RoomSlot, TabDoc } from "@himalayan-stays/shared";
-import { checkOut, updateRoomSlot } from "@/lib/rooms";
+import type { RoomSlot, TabDoc, WalkInDoc } from "@himalayan-stays/shared";
+import { checkOut, updateRoomSlot, getActiveWalkIn } from "@/lib/rooms";
 import { getDocsByPrefix } from "@/lib/db";
+import Receipt from "./Receipt";
 
 interface Props {
   room: RoomSlot;
@@ -14,6 +15,8 @@ export default function RoomDetail({ room, roomType, onClose, onDone }: Props) {
   const [confirmingCheckout, setConfirmingCheckout] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [roomTabs, setRoomTabs] = useState<TabDoc[]>([]);
+  const [walkIn, setWalkIn] = useState<WalkInDoc | null>(null);
+  const [receiptTab, setReceiptTab] = useState<TabDoc | null>(null);
 
   useEffect(() => {
     // Load all tabs for this room (open + settled)
@@ -26,7 +29,13 @@ export default function RoomDetail({ room, roomType, onClose, onDone }: Props) {
         );
       setRoomTabs(matching);
     });
-  }, [room.room_id]);
+    // Load active walk-in (if any) — only for occupied rooms
+    if (room.status === "OCCUPIED" && !room.booking_ref) {
+      getActiveWalkIn(room.room_id).then(setWalkIn);
+    } else {
+      setWalkIn(null);
+    }
+  }, [room.room_id, room.status, room.booking_ref]);
 
   const handleCheckOut = useCallback(async () => {
     if (!confirmingCheckout) {
@@ -99,16 +108,19 @@ export default function RoomDetail({ room, roomType, onClose, onDone }: Props) {
       );
     }
     if (tab.status === "SETTLED") {
+      const payments = tab.payments ?? [];
       const methodLabel =
-        tab.settlement_method === "CASH"
-          ? "Cash"
-          : tab.settlement_method === "ESEWA"
-            ? "eSewa"
-            : tab.settlement_method === "KHALTI"
-              ? "Khalti"
-              : tab.settlement_method === "INCLUDED_IN_BOOKING"
-                ? "Room Tab"
-                : "Settled";
+        payments.length > 1
+          ? "Split"
+          : payments[0]?.method === "CASH"
+            ? "Cash"
+            : payments[0]?.method === "ESEWA"
+              ? "eSewa"
+              : payments[0]?.method === "KHALTI"
+                ? "Khalti"
+                : payments[0]?.method === "INCLUDED_IN_BOOKING"
+                  ? "Room Tab"
+                  : "Settled";
       return (
         <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full font-medium">
           {methodLabel}
@@ -166,9 +178,20 @@ export default function RoomDetail({ room, roomType, onClose, onDone }: Props) {
         {/* Guest info (occupied rooms) */}
         {room.status === "OCCUPIED" && (
           <div className="bg-[var(--color-surface)] rounded-lg p-4 space-y-3">
-            <h3 className="text-sm font-medium text-white/50 uppercase tracking-wide">
-              Guest
-            </h3>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-white/50 uppercase tracking-wide">
+                Guest
+              </h3>
+              <span
+                className={`text-[10px] font-bold uppercase tracking-wider rounded-full px-2 py-0.5 ${
+                  room.booking_ref
+                    ? "bg-blue-500/20 text-blue-300"
+                    : "bg-amber-500/20 text-amber-300"
+                }`}
+              >
+                {room.booking_ref ? "Platform" : "Walk-in"}
+              </span>
+            </div>
             <div className="flex items-center justify-between">
               <span className="text-white/50 text-sm">Name</span>
               <span className="text-lg font-semibold">
@@ -190,10 +213,54 @@ export default function RoomDetail({ room, roomType, onClose, onDone }: Props) {
             {room.booking_ref && (
               <div className="flex items-center justify-between">
                 <span className="text-white/50 text-sm">Booking Ref</span>
-                <span className="text-base text-white/80">
+                <span className="font-mono text-base text-white/80">
                   {room.booking_ref}
                 </span>
               </div>
+            )}
+            {walkIn && (
+              <>
+                <div className="flex items-center justify-between">
+                  <span className="text-white/50 text-sm">Group size</span>
+                  <span className="text-base text-white/80">
+                    {walkIn.group_size}{" "}
+                    {walkIn.group_size === 1 ? "guest" : "guests"}
+                  </span>
+                </div>
+                {walkIn.nationality && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-white/50 text-sm">Nationality</span>
+                    <span className="text-base text-white/80">
+                      {walkIn.nationality}
+                    </span>
+                  </div>
+                )}
+                {walkIn.phone && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-white/50 text-sm">Phone</span>
+                    <a
+                      href={`tel:${walkIn.phone}`}
+                      className="text-base font-medium text-[var(--color-primary)]"
+                    >
+                      {walkIn.phone}
+                    </a>
+                  </div>
+                )}
+                {walkIn.notes && (
+                  <div>
+                    <p className="text-white/50 text-sm mb-1">Notes</p>
+                    <p className="text-sm text-white/70 bg-white/5 rounded p-2">
+                      {walkIn.notes}
+                    </p>
+                  </div>
+                )}
+                {!walkIn.synced && (
+                  <div className="flex items-center justify-end gap-1 text-xs text-yellow-400">
+                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-yellow-400" />
+                    Not yet synced to platform
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -223,15 +290,26 @@ export default function RoomDetail({ room, roomType, onClose, onDone }: Props) {
                           {tab.closed_at && ` — ${formatTime(tab.closed_at)}`}
                         </span>
                       </div>
-                      <span
-                        className={`text-base font-bold ${
-                          tab.status === "OPEN"
-                            ? "text-yellow-400"
-                            : "text-green-400"
-                        }`}
-                      >
-                        Rs. {tab.tab_total_npr.toLocaleString()}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`text-base font-bold ${
+                            tab.status === "OPEN"
+                              ? "text-yellow-400"
+                              : "text-green-400"
+                          }`}
+                        >
+                          Rs. {tab.tab_total_npr.toLocaleString()}
+                        </span>
+                        {tab.status === "SETTLED" && (
+                          <button
+                            onClick={() => setReceiptTab(tab)}
+                            className="rounded bg-white/10 px-2 py-1 text-xs text-white/70 active:bg-white/20"
+                            aria-label="View receipt"
+                          >
+                            🧾
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     {/* Item list */}
@@ -330,6 +408,10 @@ export default function RoomDetail({ room, roomType, onClose, onDone }: Props) {
             </button>
           )}
         </div>
+      )}
+
+      {receiptTab && (
+        <Receipt tab={receiptTab} onClose={() => setReceiptTab(null)} />
       )}
     </div>
   );

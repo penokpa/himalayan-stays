@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import PaymentMethodSelector from "@/components/PaymentMethodSelector";
+import Money from "@/components/Money";
 
 export async function generateMetadata({
   params,
@@ -74,23 +75,22 @@ export default async function PaymentPage({
           <h2 className="font-semibold text-stone-900">Booking Summary</h2>
           <div className="mt-3 space-y-2 text-sm">
             {booking.legs.map((leg, i) => (
-              <div key={leg.id} className="flex justify-between">
-                <span className="text-stone-600">
+              <div key={leg.id} className="flex items-start justify-between gap-3">
+                <span className="min-w-0 flex-1 text-stone-600">
                   {booking.legs.length > 1 && `${i + 1}. `}
                   {leg.lodge.name} &middot; {leg.room.name} &middot;{" "}
                   {leg.nightCount} {leg.nightCount === 1 ? "night" : "nights"}
                 </span>
-                <span className="font-medium text-stone-900">
-                  NPR {Number(leg.legTotal).toLocaleString()}
-                </span>
+                <Money
+                  npr={Number(leg.legTotal)}
+                  className="shrink-0 whitespace-nowrap font-medium text-stone-900"
+                />
               </div>
             ))}
           </div>
           <div className="mt-3 flex justify-between border-t border-stone-200 pt-3 text-lg font-semibold">
             <span className="text-stone-900">Total</span>
-            <span className="text-emerald-700">
-              NPR {totalNpr.toLocaleString()}
-            </span>
+            <Money npr={totalNpr} className="text-emerald-700" />
           </div>
           {totalUsd && (
             <p className="mt-1 text-right text-xs text-stone-400">

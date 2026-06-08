@@ -6,8 +6,10 @@ const { auth } = NextAuth(authConfig);
 
 export default auth((req) => {
   const { pathname } = req.nextUrl;
+  const isAdmin = pathname.startsWith("/admin");
+  const isOwner = pathname.startsWith("/owner");
 
-  if (pathname.startsWith("/admin")) {
+  if (isAdmin || isOwner) {
     if (!req.auth) {
       const loginUrl = new URL("/login", req.url);
       loginUrl.searchParams.set("callbackUrl", pathname);
@@ -15,7 +17,10 @@ export default auth((req) => {
     }
 
     const role = (req.auth.user as { role?: string }).role;
-    if (role !== "ADMIN") {
+    if (isAdmin && role !== "ADMIN") {
+      return new NextResponse("Forbidden", { status: 403 });
+    }
+    if (isOwner && role !== "LODGE_OWNER" && role !== "ADMIN") {
       return new NextResponse("Forbidden", { status: 403 });
     }
   }
@@ -24,5 +29,5 @@ export default auth((req) => {
 });
 
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/admin/:path*", "/owner/:path*"],
 };

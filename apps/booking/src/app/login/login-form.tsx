@@ -8,16 +8,40 @@ import Link from "next/link";
 export default function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") || "/";
+  const callbackUrl = searchParams.get("callbackUrl");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [needsVerify, setNeedsVerify] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resent, setResent] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  async function resendVerification() {
+    if (!email || resending) return;
+    setResending(true);
+    setResent(false);
+    try {
+      await fetch("/api/auth/resend-verification", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      setResent(true);
+    } catch {
+      // swallow — we always show the same success either way
+      setResent(true);
+    } finally {
+      setResending(false);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    setNeedsVerify(false);
+    setResent(false);
     setLoading(true);
 
     try {
@@ -28,9 +52,30 @@ export default function LoginForm() {
       });
 
       if (result?.error) {
-        setError("Invalid email or password.");
+        const isUnverified =
+          typeof result.error === "string" &&
+          /EMAIL_NOT_VERIFIED/.test(result.error);
+        if (isUnverified) {
+          setNeedsVerify(true);
+          setError("Please verify your email before signing in.");
+        } else {
+          setError("Invalid email or password.");
+        }
       } else {
-        router.push(callbackUrl);
+        // Role-aware default landing — explicit callbackUrl always wins
+        let landing = callbackUrl;
+        if (!landing) {
+          const sessionRes = await fetch("/api/auth/session");
+          const session = await sessionRes.json();
+          const role = session?.user?.role;
+          landing =
+            role === "ADMIN"
+              ? "/admin"
+              : role === "LODGE_OWNER"
+                ? "/owner"
+                : "/";
+        }
+        router.push(landing);
         router.refresh();
       }
     } catch {
@@ -51,9 +96,31 @@ export default function LoginForm() {
             Sign in to your Himalayan Stays account
           </p>
 
-          {error && (
+          {error && !needsVerify && (
             <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
               {error}
+            </div>
+          )}
+          {needsVerify && (
+            <div className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm text-amber-900 ring-1 ring-amber-200">
+              <p className="font-medium">Email not verified yet</p>
+              <p className="mt-1 text-amber-800">
+                Check your inbox for the confirmation link we sent on signup.
+              </p>
+              {resent ? (
+                <p className="mt-2 text-xs text-amber-700">
+                  If an unverified account exists for <strong>{email}</strong>, we just sent a new link.
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={resendVerification}
+                  disabled={resending}
+                  className="mt-2 text-xs font-semibold text-amber-900 underline hover:no-underline disabled:opacity-50"
+                >
+                  {resending ? "Sending…" : "Resend verification email"}
+                </button>
+              )}
             </div>
           )}
 
@@ -77,12 +144,20 @@ export default function LoginForm() {
             </div>
 
             <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-stone-700"
-              >
-                Password
-              </label>
+              <div className="flex items-baseline justify-between">
+                <label
+                  htmlFor="password"
+                  className="block text-sm font-medium text-stone-700"
+                >
+                  Password
+                </label>
+                <Link
+                  href="/forgot-password"
+                  className="text-xs font-medium text-emerald-700 hover:underline"
+                >
+                  Forgot?
+                </Link>
+              </div>
               <input
                 id="password"
                 type="password"

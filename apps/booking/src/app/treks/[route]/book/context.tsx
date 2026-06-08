@@ -48,6 +48,9 @@ interface ItineraryContextValue extends ItineraryState {
   setTraveler: (info: Partial<TravelerInfo>) => void;
   reset: () => void;
   grandTotal: number;
+  quotedTotals: number[];
+  isQuoting: boolean;
+  legTotal: (i: number) => number;
 }
 
 const ItineraryContext = createContext<ItineraryContextValue | null>(null);
@@ -91,6 +94,50 @@ export function ItineraryBuilderProvider({
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
+  const [quotedTotals, setQuotedTotals] = useState<number[]>([]);
+  const [isQuoting, setIsQuoting] = useState(false);
+
+  const quoteSignature = state.startDate
+    ? state.stops.map((s) => `${s.roomId}:${s.dayNumber}:${s.nights}`).join("|")
+    : "";
+
+  useEffect(() => {
+    const allRoomsPicked =
+      state.stops.length > 0 && state.stops.every((s) => s.roomId);
+    if (!state.startDate || !allRoomsPicked) {
+      setQuotedTotals([]);
+      return;
+    }
+    let cancelled = false;
+    setIsQuoting(true);
+    fetch("/api/pricing/quote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        startDate: state.startDate,
+        stops: state.stops.map((s) => ({
+          roomId: s.roomId,
+          dayNumber: s.dayNumber,
+          nights: s.nights,
+        })),
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(r)))
+      .then((data: { totals: number[] }) => {
+        if (!cancelled) setQuotedTotals(data.totals);
+      })
+      .catch(() => {
+        if (!cancelled) setQuotedTotals([]);
+      })
+      .finally(() => {
+        if (!cancelled) setIsQuoting(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quoteSignature]);
+
   const setStartDate = useCallback((date: string) => {
     setState((s) => ({ ...s, startDate: date }));
   }, []);
@@ -124,10 +171,24 @@ export function ItineraryBuilderProvider({
     setState(makeInitialState(trekRoute, trekRouteName));
   }, [trekRoute, trekRouteName]);
 
-  const grandTotal = state.stops.reduce(
-    (sum, stop) => sum + stop.pricePerNight * stop.nights,
-    0
+  const legTotal = useCallback(
+    (i: number) => {
+      const stop = state.stops[i];
+      if (!stop) return 0;
+      const quoted = quotedTotals[i];
+      if (typeof quoted === "number" && quoted > 0) return quoted;
+      return stop.pricePerNight * stop.nights;
+    },
+    [state.stops, quotedTotals]
   );
+
+  const grandTotal =
+    quotedTotals.length === state.stops.length && state.stops.length > 0
+      ? quotedTotals.reduce((sum, t) => sum + t, 0)
+      : state.stops.reduce(
+          (sum, stop) => sum + stop.pricePerNight * stop.nights,
+          0
+        );
 
   return (
     <ItineraryContext.Provider
@@ -140,6 +201,9 @@ export function ItineraryBuilderProvider({
         updateStop,
         setTraveler,
         grandTotal,
+        quotedTotals,
+        isQuoting,
+        legTotal,
         reset,
       }}
     >

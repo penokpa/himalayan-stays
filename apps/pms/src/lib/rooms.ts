@@ -73,7 +73,8 @@ export async function checkIn(
   expectedCheckout?: string,
   nationality?: string,
   phone?: string,
-  notes?: string
+  notes?: string,
+  bookingRef?: string
 ): Promise<void> {
   const now = new Date().toISOString();
 
@@ -82,28 +83,47 @@ export async function checkIn(
     guest_name: guestName,
     check_in_date: now,
     expected_checkout: expectedCheckout,
+    booking_ref: bookingRef,
   });
 
-  const walkIn: WalkInDoc = {
-    _id: `walkin:${LODGE_ID}:${Date.now()}`,
-    type: "walkin",
-    lodge_id: LODGE_ID,
-    guest_name: guestName,
-    group_size: groupSize,
-    room_id: roomId,
-    check_in: now,
-    expected_checkout: expectedCheckout,
-    nationality,
-    phone,
-    notes,
-    created_at: now,
-    synced: false,
-  };
-
-  await putDoc(walkIn);
+  // Only create a walk-in record if this isn't a platform booking.
+  // Platform bookings will sync from PostgreSQL via the bridge (Phase 2).
+  if (!bookingRef) {
+    const walkIn: WalkInDoc = {
+      _id: `walkin:${LODGE_ID}:${Date.now()}`,
+      type: "walkin",
+      lodge_id: LODGE_ID,
+      guest_name: guestName,
+      group_size: groupSize,
+      room_id: roomId,
+      check_in: now,
+      expected_checkout: expectedCheckout,
+      nationality,
+      phone,
+      notes,
+      created_at: now,
+      synced: false,
+    };
+    await putDoc(walkIn);
+  }
 
   // Auto-open a POS tab for the guest
   await openTab(guestName, roomId);
+}
+
+/** Find the active (most recent un-checked-out) walk-in for a room */
+export async function getActiveWalkIn(roomId: string): Promise<WalkInDoc | null> {
+  const all = await import("@/lib/db").then((m) => m.getDocsByPrefix<WalkInDoc>("walkin:"));
+  const matching = all
+    .filter((w) => w.room_id === roomId)
+    .sort((a, b) => new Date(b.check_in).getTime() - new Date(a.check_in).getTime());
+  return matching[0] ?? null;
+}
+
+/** List all walk-ins (most recent first) */
+export async function listWalkIns(): Promise<WalkInDoc[]> {
+  const all = await import("@/lib/db").then((m) => m.getDocsByPrefix<WalkInDoc>("walkin:"));
+  return all.sort((a, b) => new Date(b.check_in).getTime() - new Date(a.check_in).getTime());
 }
 
 export async function checkOut(roomId: string): Promise<void> {

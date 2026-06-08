@@ -1,29 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAdmin } from "@/lib/admin";
+import { checkLodgeAccess } from "@/lib/lodge-access";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const denied = await requireAdmin();
-  if (denied) return denied;
-
   const { id: lodgeId } = await params;
+  const access = await checkLodgeAccess(lodgeId);
+  if (!access.ok) {
+    return NextResponse.json({ error: access.error }, { status: access.status });
+  }
 
   try {
-    // Validate lodge exists
-    const lodge = await prisma.lodge.findUnique({
-      where: { id: lodgeId },
-      select: { id: true },
-    });
-
-    if (!lodge) {
-      return NextResponse.json(
-        { error: "Lodge not found" },
-        { status: 404 },
-      );
-    }
 
     const body = await request.json();
     const { name, roomType, capacity, basePriceNpr, floor } = body;
