@@ -14,14 +14,18 @@ export interface RoomQuote {
 }
 
 function eachNight(checkIn: Date, checkOut: Date): Date[] {
+  // Iterate in UTC so the cursor lands on the same instant Prisma uses for
+  // `@db.Date` fields (`seasonPricing.startDate`/`endDate`). Mixing local and
+  // UTC midnight here under-charges the first night of every season in
+  // timezones ahead of UTC (e.g. Asia/Kathmandu = UTC+5:45).
   const nights: Date[] = [];
   const cursor = new Date(checkIn);
-  cursor.setHours(0, 0, 0, 0);
+  cursor.setUTCHours(0, 0, 0, 0);
   const end = new Date(checkOut);
-  end.setHours(0, 0, 0, 0);
+  end.setUTCHours(0, 0, 0, 0);
   while (cursor < end) {
     nights.push(new Date(cursor));
-    cursor.setDate(cursor.getDate() + 1);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return nights;
 }
